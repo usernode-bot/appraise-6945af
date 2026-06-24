@@ -1,3 +1,10 @@
 {
-  "secrets": []
+  "name": "Appraise",
+  "secrets": [],
+  "tests": [
+    { "name": "Round list renders", "path": "/", "expectText": "Voting Rounds" },
+    { "name": "Create form opens", "path": "/create", "expectText": "Build a Voting Round" },
+    { "name": "Open round detail", "path": "/round/staging-fav-dev-tools", "expectText": "Favorite Dev Tools" },
+    { "name": "Closed round shows results", "path": "/round/staging-best-game", "expectText": "RESULTS" }
+  ]
 }

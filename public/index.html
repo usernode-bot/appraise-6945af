@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  
+
   <script>
   // usernode-dev-console@1
   (function () {
@@ -63,59 +63,558 @@
     try { post('info', ['[dev-console ready]'], { kind: 'ready' }); } catch (_) {}
   })();
   </script>
-  <title>Appraise</title>
+  <title>Appraise 🎉 chaos vote</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>tailwind.config = { darkMode: 'class' }</script>
+  <style>
+    /* ===== CHAOS MODE: loud, clashing, wobbling ===== */
+    @import url('https://fonts.googleapis.com/css2?family=Bungee&family=Comic+Neue:wght@700&family=Space+Grotesk:wght@400;700&display=swap');
+
+    body {
+      font-family: 'Space Grotesk', system-ui, sans-serif;
+      background:
+        radial-gradient(circle at 12% 18%, rgba(255,0,200,.30), transparent 42%),
+        radial-gradient(circle at 88% 22%, rgba(0,255,225,.28), transparent 42%),
+        radial-gradient(circle at 25% 85%, rgba(255,230,0,.22), transparent 45%),
+        radial-gradient(circle at 80% 80%, rgba(120,80,255,.30), transparent 45%),
+        #0a0118;
+      background-attachment: fixed;
+      overflow-x: hidden;
+    }
+    .funky { font-family: 'Bungee', 'Comic Neue', cursive; }
+    .comic { font-family: 'Comic Neue', cursive; }
+
+    /* animated rainbow text */
+    @keyframes hue { 0%{filter:hue-rotate(0)} 100%{filter:hue-rotate(360deg)} }
+    .rainbow {
+      background: linear-gradient(90deg,#ff3cac,#ffeb3b,#2afadf,#7c4dff,#ff3cac);
+      background-size: 300% 100%;
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+      animation: hue 6s linear infinite, slide 8s linear infinite;
+    }
+    @keyframes slide { 0%{background-position:0 0} 100%{background-position:300% 0} }
+
+    @keyframes wobble {
+      0%,100%{transform:rotate(-2deg)} 50%{transform:rotate(2deg)}
+    }
+    @keyframes bounce2 {
+      0%,100%{transform:translateY(0)} 50%{transform:translateY(-7px)}
+    }
+    @keyframes jiggle {
+      0%,100%{transform:rotate(0)} 25%{transform:rotate(-3deg) scale(1.03)}
+      75%{transform:rotate(3deg) scale(1.03)}
+    }
+    @keyframes shake {
+      0%,100%{transform:translateX(0)} 20%{transform:translateX(-9px) rotate(-2deg)}
+      40%{transform:translateX(9px) rotate(2deg)} 60%{transform:translateX(-6px)}
+      80%{transform:translateX(6px)}
+    }
+    @keyframes spin-slow { 100%{transform:rotate(360deg)} }
+    @keyframes pop { 0%{transform:scale(.6)} 60%{transform:scale(1.15)} 100%{transform:scale(1)} }
+
+    .wobble:hover { animation: wobble .35s ease-in-out infinite; }
+    .bouncy:hover { animation: bounce2 .5s ease-in-out infinite; }
+    .jiggly:hover { animation: jiggle .4s ease-in-out infinite; }
+    .shake { animation: shake .45s ease-in-out 1; }
+    .pop-in { animation: pop .35s cubic-bezier(.2,1.4,.5,1) 1; }
+    .spin-slow { animation: spin-slow 9s linear infinite; display:inline-block; }
+
+    .neon-card {
+      border: 3px solid;
+      border-image: linear-gradient(120deg,#ff3cac,#2afadf,#ffeb3b,#7c4dff) 1;
+      box-shadow: 0 0 0 2px rgba(0,0,0,.4), 8px 8px 0 rgba(255,60,172,.45);
+      background: rgba(20,4,40,.78);
+      backdrop-filter: blur(2px);
+    }
+    .chunky-btn {
+      border: 3px solid #0a0118;
+      box-shadow: 4px 4px 0 #0a0118;
+      transition: transform .08s ease, box-shadow .08s ease;
+      font-weight: 800;
+    }
+    .chunky-btn:active { transform: translate(4px,4px); box-shadow: 0 0 0 #0a0118; }
+
+    .tilt-1 { transform: rotate(-1.2deg); } .tilt-2 { transform: rotate(1deg); }
+    .tilt-3 { transform: rotate(-.6deg); }
+
+    /* confetti */
+    .confetti-pc {
+      position: fixed; top: -20px; width: 12px; height: 12px; z-index: 9999;
+      will-change: transform; pointer-events: none;
+    }
+    @keyframes fall {
+      0% { transform: translateY(-20px) rotate(0); opacity: 1; }
+      100% { transform: translateY(105vh) rotate(720deg); opacity: 1; }
+    }
+    ::-webkit-scrollbar { width: 12px; }
+    ::-webkit-scrollbar-thumb { background: linear-gradient(#ff3cac,#2afadf); border-radius: 8px; }
+    .badge { font-weight:800; letter-spacing:.02em; }
+  </style>
 </head>
-<body class="bg-zinc-950 text-zinc-100 min-h-screen flex flex-col items-center justify-center gap-8 p-4">
-  <h1 class="text-2xl font-bold">Appraise</h1>
+<body class="text-zinc-100 min-h-screen p-4 sm:p-6">
 
-  <button id="press-btn" class="w-32 h-32 rounded-full bg-violet-600 hover:bg-violet-500 active:scale-95 transition-all text-white text-xl font-bold shadow-lg shadow-violet-600/30">
-    Press!
-  </button>
+  <header class="max-w-3xl mx-auto mb-6 text-center select-none">
+    <h1 class="funky text-4xl sm:text-6xl rainbow drop-shadow-[0_3px_0_rgba(0,0,0,.6)] cursor-pointer"
+        id="logo">🎉 APPRAISE 🗳️</h1>
+    <p class="comic text-lg text-yellow-300 mt-1 -rotate-1">vote for the apps you LOVE… no funny business 👀</p>
+    <div id="staging-flag" class="hidden mt-2 inline-block bg-pink-600 text-white badge px-3 py-1 rounded-full tilt-2 text-sm">⚠️ STAGING SANDBOX — fake data ahoy</div>
+  </header>
 
-  <div id="count" class="text-lg text-zinc-400">0 total presses</div>
+  <main id="app" class="max-w-3xl mx-auto"></main>
 
-  <div class="w-full max-w-sm">
-    <h2 class="text-sm font-medium text-zinc-500 mb-2 text-center">Leaderboard</h2>
-    <div id="leaderboard" class="space-y-1"></div>
-  </div>
+  <footer class="max-w-3xl mx-auto mt-10 text-center comic text-zinc-500 text-sm">
+    built with chaos &amp; confetti · your individual ballot stays secret 🤐
+  </footer>
 
   <script>
+    // ----- token bootstrap (forward platform JWT on every fetch) -----
     const params = new URLSearchParams(window.location.search);
     const token = params.get('token') || '';
-    const headers = token ? { 'x-usernode-token': token } : {};
+    const authHeaders = token ? { 'x-usernode-token': token } : {};
 
-    async function loadLeaderboard() {
-      const res = await fetch('/api/leaderboard', { headers });
-      if (!res.ok) return;
-      const { leaderboard } = await res.json();
-      const el = document.getElementById('leaderboard');
-      if (!leaderboard.length) {
-        el.innerHTML = '<p class="text-center text-zinc-600 text-sm">No presses yet</p>';
-        return;
+    let ME = null;
+
+    async function api(path, opts = {}) {
+      const res = await fetch(path, {
+        ...opts,
+        headers: {
+          'Content-Type': 'application/json',
+          ...authHeaders,
+          ...(opts.headers || {}),
+        },
+      });
+      let data = {};
+      try { data = await res.json(); } catch (_) {}
+      if (!res.ok) {
+        const err = new Error(data.error || ('Request failed (' + res.status + ')'));
+        err.status = res.status;
+        throw err;
       }
-      el.innerHTML = leaderboard.map((r, i) =>
-        '<div class="flex justify-between px-3 py-1 rounded ' + (i === 0 ? 'bg-violet-600/20 text-violet-300' : 'text-zinc-400') + '">' +
-        '<span>' + (i + 1) + '. ' + r.username + '</span>' +
-        '<span class="font-mono">' + r.presses + '</span></div>'
-      ).join('');
-      const total = leaderboard.reduce((s, r) => s + parseInt(r.presses), 0);
-      document.getElementById('count').textContent = total + ' total presses';
+      return data;
     }
 
-    document.getElementById('press-btn').addEventListener('click', async () => {
-      try {
-        const res = await fetch('/api/press', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...headers },
-        });
-        if (res.ok) loadLeaderboard();
-        else if (res.status === 401) document.getElementById('count').textContent = 'Sign in to press!';
-      } catch {}
-    });
+    const $ = (sel, root = document) => root.querySelector(sel);
+    const esc = (s) => String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
-    loadLeaderboard();
+    const EMOJI = ['🎉','🚀','🔥','💥','🌈','⚡','🎊','✨','🤪','🥳','👾','🦄','🍕','💖','🎈'];
+    const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+
+    // ----- confetti -----
+    function confetti(n = 90) {
+      const colors = ['#ff3cac','#2afadf','#ffeb3b','#7c4dff','#33ff8c','#ff7a00'];
+      for (let i = 0; i < n; i++) {
+        const p = document.createElement('div');
+        p.className = 'confetti-pc';
+        p.style.left = Math.random() * 100 + 'vw';
+        p.style.background = pick(colors);
+        p.style.borderRadius = Math.random() > .5 ? '50%' : '2px';
+        const dur = 1.6 + Math.random() * 1.8;
+        p.style.animation = `fall ${dur}s linear ${Math.random() * .4}s forwards`;
+        p.style.transform = `scale(${0.6 + Math.random()})`;
+        document.body.appendChild(p);
+        setTimeout(() => p.remove(), (dur + .6) * 1000);
+      }
+    }
+
+    function shake(el) {
+      if (!el) return;
+      el.classList.remove('shake'); void el.offsetWidth; el.classList.add('shake');
+    }
+
+    function toast(msg, ok = true) {
+      const t = document.createElement('div');
+      t.className = 'fixed left-1/2 -translate-x-1/2 bottom-6 z-[9998] px-5 py-3 rounded-2xl badge chunky-btn pop-in ' +
+        (ok ? 'bg-emerald-400 text-emerald-950' : 'bg-pink-500 text-white');
+      t.textContent = (ok ? '✅ ' : '💢 ') + msg;
+      document.body.appendChild(t);
+      setTimeout(() => { t.style.transition = 'opacity .4s'; t.style.opacity = '0'; }, 2600);
+      setTimeout(() => t.remove(), 3100);
+    }
+
+    // ----- tiny router (pathname based; server serves index.html for any path) -----
+    function go(path) {
+      history.pushState({}, '', path);
+      render();
+    }
+    window.addEventListener('popstate', render);
+
+    function statusBadge(status) {
+      const map = {
+        open:   ['🟢 OPEN', 'bg-emerald-400 text-emerald-950'],
+        draft:  ['📝 DRAFT', 'bg-yellow-300 text-yellow-900'],
+        closed: ['🔒 CLOSED', 'bg-fuchsia-400 text-fuchsia-950'],
+      };
+      const pair = map[status] || ['?', 'bg-zinc-400 text-black'];
+      return `<span class="badge ${pair[1]} px-2.5 py-1 rounded-full text-xs">${pair[0]}</span>`;
+    }
+    const audLabel = (a) => a === 'invite' ? '🤫 Invited only' : '🌍 Everyone';
+
+    // =========================================================================
+    // VIEW: round list
+    // =========================================================================
+    async function renderList(root) {
+      root.innerHTML = `<div class="text-center comic text-2xl animate-pulse">loading the chaos… 🌀</div>`;
+      let data;
+      try { data = await api('/api/rounds'); }
+      catch (e) { root.innerHTML = errBox(e); return; }
+
+      const rounds = data.rounds || [];
+      root.innerHTML = `
+        <div class="flex items-center justify-between gap-3 mb-5 flex-wrap">
+          <h2 class="funky text-2xl text-cyan-300 tilt-1">🎪 Voting Rounds</h2>
+          <button id="new-btn" class="chunky-btn jiggly bg-gradient-to-r from-pink-500 to-yellow-400 text-black px-5 py-3 rounded-2xl text-lg">
+            ➕ CREATE A ROUND
+          </button>
+        </div>
+        <div id="rounds" class="space-y-4"></div>`;
+
+      $('#new-btn', root).onclick = () => go('/create');
+
+      const list = $('#rounds', root);
+      if (!rounds.length) {
+        list.innerHTML = `<div class="neon-card rounded-3xl p-8 text-center comic text-xl text-zinc-300">
+          No rounds yet… be the chaos you want to see 🌪️<br>Smash <b>CREATE A ROUND</b>!</div>`;
+        return;
+      }
+      list.innerHTML = rounds.map((r, i) => `
+        <button data-slug="${esc(r.slug)}" class="round-row block w-full text-left neon-card rounded-3xl p-5 wobble tilt-${(i%3)+1}">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <div class="funky text-xl text-white">${pick(EMOJI)} ${esc(r.title)}</div>
+              <div class="comic text-sm text-cyan-200 mt-1">
+                ${audLabel(r.audience)} · 🗳️ ${r.votes_per_voter} vote(s) each · 📦 ${r.candidate_count} apps
+                ${r.mine ? '· <span class="text-yellow-300">👑 yours</span>' : ''}
+              </div>
+            </div>
+            <div>${statusBadge(r.status)}</div>
+          </div>
+        </button>`).join('');
+
+      list.querySelectorAll('.round-row').forEach((el) => {
+        el.onclick = () => go('/round/' + el.dataset.slug);
+      });
+    }
+
+    function errBox(e) {
+      return `<div class="neon-card rounded-3xl p-6 text-center comic text-lg text-pink-300">
+        😬 ${esc(e.message)}<br>
+        <button onclick="location.href='/'" class="chunky-btn bg-cyan-300 text-black px-4 py-2 rounded-xl mt-3">🏠 back home</button>
+      </div>`;
+    }
+
+    // =========================================================================
+    // VIEW: create form
+    // =========================================================================
+    function candRow(idx) {
+      return `
+        <div class="cand-row neon-card rounded-2xl p-3 grid grid-cols-1 sm:grid-cols-12 gap-2 tilt-${(idx%3)+1}">
+          <input class="c-name sm:col-span-4 bg-black/40 border-2 border-cyan-400/60 rounded-xl px-3 py-2 placeholder-zinc-500" placeholder="App name *">
+          <input class="c-url sm:col-span-4 bg-black/40 border-2 border-fuchsia-400/60 rounded-xl px-3 py-2 placeholder-zinc-500" placeholder="link (optional)">
+          <input class="c-owner sm:col-span-3 bg-black/40 border-2 border-yellow-400/60 rounded-xl px-3 py-2 placeholder-zinc-500" placeholder="owner @username">
+          <button class="c-del sm:col-span-1 chunky-btn bg-pink-500 text-white rounded-xl py-2" title="remove">✖</button>
+        </div>`;
+    }
+
+    function renderCreate(root) {
+      root.innerHTML = `
+        <button id="back" class="comic text-cyan-300 mb-3">⬅ back to rounds</button>
+        <div class="neon-card rounded-3xl p-6">
+          <h2 class="funky text-2xl text-yellow-300 mb-4 tilt-2">🛠️ Build a Voting Round</h2>
+
+          <label class="comic text-cyan-200">Title *</label>
+          <input id="f-title" class="w-full bg-black/40 border-2 border-cyan-400/60 rounded-xl px-3 py-2 mb-3 mt-1" placeholder="Best app of June 2026 🏆">
+
+          <label class="comic text-cyan-200">Description</label>
+          <textarea id="f-desc" rows="2" class="w-full bg-black/40 border-2 border-fuchsia-400/60 rounded-xl px-3 py-2 mb-3 mt-1" placeholder="what's this vote about?"></textarea>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-3">
+            <div>
+              <label class="comic text-cyan-200">Who can vote?</label>
+              <select id="f-aud" class="w-full bg-black/40 border-2 border-emerald-400/60 rounded-xl px-3 py-2 mt-1">
+                <option value="everyone">🌍 Everyone</option>
+                <option value="invite">🤫 Invited only</option>
+              </select>
+            </div>
+            <div>
+              <label class="comic text-cyan-200">Votes per voter</label>
+              <input id="f-vpv" type="number" min="1" max="100" value="1" class="w-full bg-black/40 border-2 border-yellow-400/60 rounded-xl px-3 py-2 mt-1">
+            </div>
+          </div>
+
+          <div id="invite-wrap" class="hidden mb-3">
+            <label class="comic text-cyan-200">Invited usernames (comma / space separated)</label>
+            <textarea id="f-invitees" rows="2" class="w-full bg-black/40 border-2 border-purple-400/60 rounded-xl px-3 py-2 mt-1" placeholder="alice, bob, carol"></textarea>
+          </div>
+
+          <div id="spread-note" class="comic text-sm text-emerald-300 mb-4"></div>
+
+          <div class="flex items-center justify-between mb-2">
+            <label class="comic text-cyan-200 text-lg">📦 Candidate apps (min 2)</label>
+            <button id="add-cand" class="chunky-btn bouncy bg-cyan-300 text-black px-3 py-1.5 rounded-xl">➕ add app</button>
+          </div>
+          <div id="cands" class="space-y-2 mb-4"></div>
+
+          <button id="create" class="chunky-btn jiggly w-full bg-gradient-to-r from-emerald-400 via-yellow-300 to-pink-500 text-black text-xl py-4 rounded-2xl">
+            🚀 CREATE ROUND (as draft)
+          </button>
+          <div id="c-err" class="comic text-pink-300 text-center mt-3"></div>
+        </div>`;
+
+      $('#back', root).onclick = () => go('/');
+      const candsEl = $('#cands', root);
+      const addCand = () => {
+        const wrap = document.createElement('div');
+        wrap.innerHTML = candRow(candsEl.children.length);
+        const node = wrap.firstElementChild;
+        node.classList.add('pop-in');
+        node.querySelector('.c-del').onclick = () => node.remove();
+        candsEl.appendChild(node);
+      };
+      $('#add-cand', root).onclick = addCand;
+      addCand(); addCand(); // start with two
+
+      const vpv = $('#f-vpv', root);
+      const spreadNote = $('#spread-note', root);
+      const updateSpread = () => {
+        const n = Math.max(1, parseInt(vpv.value, 10) || 1);
+        if (n <= 1) {
+          spreadNote.textContent = '🧮 1 vote each — the "no dumping all votes on one app" rule kicks in at 2+.';
+        } else {
+          spreadNote.textContent = `🧮 Fairness cap: at most ${n - 1} vote(s) on any single app (so you can't dump all ${n} on one).`;
+        }
+      };
+      vpv.oninput = updateSpread; updateSpread();
+
+      const aud = $('#f-aud', root);
+      aud.onchange = () => $('#invite-wrap', root).classList.toggle('hidden', aud.value !== 'invite');
+
+      $('#create', root).onclick = async () => {
+        const candidates = [...candsEl.querySelectorAll('.cand-row')].map((r) => ({
+          app_name: r.querySelector('.c-name').value.trim(),
+          app_url: r.querySelector('.c-url').value.trim(),
+          owner_username: r.querySelector('.c-owner').value.trim(),
+        })).filter((c) => c.app_name);
+
+        const payload = {
+          title: $('#f-title', root).value.trim(),
+          description: $('#f-desc', root).value.trim(),
+          audience: aud.value,
+          votes_per_voter: parseInt(vpv.value, 10) || 1,
+          invitees: $('#f-invitees', root).value,
+          candidates,
+        };
+        try {
+          const out = await api('/api/rounds', { method: 'POST', body: JSON.stringify(payload) });
+          confetti(120);
+          toast('Round created! 🎉');
+          go('/round/' + out.round.slug);
+        } catch (e) {
+          $('#c-err', root).textContent = '💢 ' + e.message;
+          shake($('#create', root));
+        }
+      };
+    }
+
+    // =========================================================================
+    // VIEW: round detail (vote + results)
+    // =========================================================================
+    async function renderDetail(root, slug) {
+      root.innerHTML = `<div class="text-center comic text-2xl animate-pulse">summoning the round… 🔮</div>`;
+      let d;
+      try { d = await api('/api/rounds/' + encodeURIComponent(slug)); }
+      catch (e) { root.innerHTML = errBox(e); return; }
+
+      const r = d.round;
+      const cap = r.max_votes_per_app;
+      const allowance = r.votes_per_voter;
+      const alloc = {};
+      d.candidates.forEach((c) => { alloc[c.id] = c.my_votes || 0; });
+
+      root.innerHTML = `
+        <button id="back" class="comic text-cyan-300 mb-3">⬅ back to rounds</button>
+        <div class="neon-card rounded-3xl p-6 mb-5">
+          <div class="flex items-start justify-between gap-3 flex-wrap">
+            <div>
+              <h2 class="funky text-2xl text-white">${pick(EMOJI)} ${esc(r.title)}</h2>
+              <div class="comic text-cyan-200 mt-1">${audLabel(r.audience)} · 🗳️ ${allowance} vote(s) each · by @${esc(r.creator_username)}</div>
+            </div>
+            ${statusBadge(r.status)}
+          </div>
+          ${r.description ? `<p class="comic text-zinc-300 mt-3">${esc(r.description)}</p>` : ''}
+          <div id="creator-ctrls" class="mt-4 flex gap-2 flex-wrap"></div>
+        </div>
+        <div id="body"></div>`;
+
+      $('#back', root).onclick = () => go('/');
+
+      // creator controls
+      const cc = $('#creator-ctrls', root);
+      if (d.isCreator) {
+        if (r.status === 'draft') {
+          cc.innerHTML = `<button id="open-r" class="chunky-btn bouncy bg-emerald-400 text-black px-4 py-2 rounded-xl">🟢 Open voting</button>
+            <span class="comic text-yellow-300 self-center">it's a draft — open it when ready!</span>`;
+          $('#open-r', cc).onclick = async () => {
+            try { await api('/api/rounds/' + slug + '/open', { method: 'POST' }); confetti(80); renderDetail(root, slug); }
+            catch (e) { toast(e.message, false); }
+          };
+        } else if (r.status === 'open') {
+          cc.innerHTML = `<button id="close-r" class="chunky-btn bg-fuchsia-400 text-black px-4 py-2 rounded-xl">🔒 Close round</button>
+            <span class="comic text-cyan-200 self-center">you can peek at results anytime 👑</span>`;
+          $('#close-r', cc).onclick = async () => {
+            try { await api('/api/rounds/' + slug + '/close', { method: 'POST' }); renderDetail(root, slug); }
+            catch (e) { toast(e.message, false); }
+          };
+        } else {
+          cc.innerHTML = `<span class="comic text-fuchsia-300">round closed — results are public 🏆</span>`;
+        }
+      }
+
+      const body = $('#body', root);
+
+      // ---- voting panel (only when open) ----
+      if (r.status === 'open') {
+        body.innerHTML = `
+          <div class="sticky top-2 z-20 mb-4">
+            <div id="tally" class="neon-card rounded-2xl px-4 py-3 text-center funky text-xl"></div>
+          </div>
+          <div id="cards" class="grid grid-cols-1 sm:grid-cols-2 gap-4"></div>
+          <button id="submit" class="chunky-btn jiggly w-full mt-5 bg-gradient-to-r from-yellow-300 via-pink-500 to-cyan-400 text-black text-2xl py-4 rounded-2xl">
+            🗳️ SUBMIT BALLOT 🎉
+          </button>
+          <div id="v-err" class="comic text-pink-300 text-center mt-3"></div>
+          <p class="comic text-zinc-400 text-center text-sm mt-2">cap: max ${cap} on any one app · your ballot is secret 🤐</p>`;
+
+        const cardsEl = $('#cards', body);
+        cardsEl.innerHTML = d.candidates.map((c, i) => `
+          <div class="cand neon-card rounded-2xl p-4 tilt-${(i%3)+1} ${c.is_own ? 'opacity-70' : ''}" data-id="${c.id}">
+            <div class="funky text-lg text-white">${pick(EMOJI)} ${esc(c.app_name)}</div>
+            ${c.app_url ? `<a href="${esc(c.app_url)}" target="_blank" rel="noopener" class="comic text-cyan-300 text-sm underline break-all">${esc(c.app_url)}</a>` : ''}
+            ${c.owner_username ? `<div class="comic text-xs text-zinc-400 mt-0.5">by @${esc(c.owner_username)}</div>` : ''}
+            ${c.is_own
+              ? `<div class="comic text-yellow-300 mt-3">🚫 that's YOUR app — no self-voting, you sneaky genius 😏</div>`
+              : `<div class="flex items-center justify-center gap-4 mt-3">
+                   <button class="dec chunky-btn bg-pink-500 text-white w-11 h-11 rounded-full text-2xl leading-none">−</button>
+                   <span class="cnt funky text-3xl w-10 text-center text-yellow-300">0</span>
+                   <button class="inc chunky-btn bg-emerald-400 text-black w-11 h-11 rounded-full text-2xl leading-none">+</button>
+                 </div>`}
+          </div>`).join('');
+
+        const tally = $('#tally', body);
+        const total = () => Object.values(alloc).reduce((s, n) => s + n, 0);
+        const refresh = () => {
+          const used = total();
+          const left = allowance - used;
+          tally.innerHTML = `🎯 <span class="text-cyan-300">${used}</span> used · <span class="${left === 0 ? 'text-emerald-300' : 'text-yellow-300'}">${left}</span> left of <span class="text-pink-400">${allowance}</span>`;
+          cardsEl.querySelectorAll('.cand').forEach((card) => {
+            const id = +card.dataset.id;
+            const cntEl = card.querySelector('.cnt');
+            if (cntEl) cntEl.textContent = alloc[id] || 0;
+          });
+        };
+
+        cardsEl.querySelectorAll('.cand').forEach((card) => {
+          const id = +card.dataset.id;
+          const inc = card.querySelector('.inc');
+          const dec = card.querySelector('.dec');
+          if (!inc) return; // own-app card has no steppers
+          inc.onclick = () => {
+            const used = total();
+            if (used >= allowance) { toast('No votes left! 🫨', false); shake(card); return; }
+            if ((alloc[id] || 0) >= cap) { toast(`Max ${cap} on one app — spread it! 🤹`, false); shake(card); return; }
+            alloc[id] = (alloc[id] || 0) + 1; refresh();
+          };
+          dec.onclick = () => {
+            if ((alloc[id] || 0) <= 0) return;
+            alloc[id] -= 1; refresh();
+          };
+        });
+        refresh();
+
+        $('#submit', body).onclick = async () => {
+          const allocation = Object.entries(alloc)
+            .filter((pairEntry) => pairEntry[1] > 0)
+            .map((pairEntry) => ({ candidate_id: +pairEntry[0], votes: pairEntry[1] }));
+          try {
+            await api('/api/rounds/' + slug + '/vote', { method: 'POST', body: JSON.stringify({ allocation }) });
+            confetti(160);
+            toast('Ballot submitted! 🥳 results unlocked');
+            renderDetail(root, slug);
+          } catch (e) {
+            $('#v-err', body).textContent = '💢 ' + e.message;
+            shake($('#submit', body));
+            toast(e.message, false);
+          }
+        };
+      } else if (r.status === 'draft') {
+        body.innerHTML = `<div class="neon-card rounded-3xl p-8 text-center comic text-xl text-yellow-300">
+          📝 This round is still a draft. Voting hasn't opened yet — check back soon! 🍿
+          <div class="comic text-cyan-200 mt-3">Candidate apps (${d.candidates.length}):</div>
+          <div class="mt-2 flex flex-wrap gap-2 justify-center">
+            ${d.candidates.map((c) => `<span class="badge bg-purple-500/40 px-3 py-1 rounded-full">${esc(c.app_name)}</span>`).join('')}
+          </div>
+        </div>`;
+      }
+
+      // ---- results panel ----
+      if (d.results) {
+        const max = Math.max(1, ...d.results.candidates.map((c) => c.votes));
+        const palette = ['from-pink-500 to-yellow-400','from-cyan-400 to-emerald-400','from-purple-500 to-pink-500','from-yellow-300 to-orange-500','from-emerald-400 to-cyan-400'];
+        const medals = ['🥇','🥈','🥉'];
+        const panel = document.createElement('div');
+        panel.className = 'neon-card rounded-3xl p-6 mt-6';
+        panel.innerHTML = `
+          <h3 class="funky text-2xl text-cyan-300 mb-1 tilt-1">📊 RESULTS</h3>
+          <p class="comic text-zinc-300 mb-4">${d.results.voterCount} brave voter(s) have spoken 🗣️</p>
+          <div class="space-y-3">
+            ${d.results.candidates.map((c, i) => `
+              <div>
+                <div class="flex justify-between comic text-sm mb-1">
+                  <span>${medals[i] || '▪️'} ${esc(c.app_name)}</span>
+                  <span class="text-yellow-300 funky">${c.votes}</span>
+                </div>
+                <div class="h-6 rounded-full bg-black/50 overflow-hidden border-2 border-black">
+                  <div class="h-full bg-gradient-to-r ${palette[i % palette.length]} rounded-full transition-all"
+                       style="width:${Math.round((c.votes / max) * 100)}%"></div>
+                </div>
+              </div>`).join('')}
+          </div>`;
+        body.appendChild(panel);
+      } else if (r.status === 'open' && !d.isCreator) {
+        const note = document.createElement('div');
+        note.className = 'comic text-center text-zinc-400 mt-6';
+        note.textContent = '🙈 Results are hidden until you cast your ballot — vote first!';
+        body.appendChild(note);
+      }
+    }
+
+    // =========================================================================
+    // Router dispatch
+    // =========================================================================
+    async function render() {
+      const root = $('#app');
+      const p = window.location.pathname;
+      if (p === '/create') return renderCreate(root);
+      const m = p.match(/^\/round\/(.+)$/);
+      if (m) return renderDetail(root, decodeURIComponent(m[1]));
+      return renderList(root);
+    }
+
+    // logo easter egg
+    $('#logo').onclick = () => confetti(140);
+
+    (async function boot() {
+      try { ME = await api('/api/me'); } catch (_) {}
+      // best-effort staging flag: seeded demo rounds only exist in staging
+      try {
+        const data = await api('/api/rounds');
+        if ((data.rounds || []).some((r) => r.slug && r.slug.startsWith('staging-'))) {
+          $('#staging-flag').classList.remove('hidden');
+        }
+      } catch (_) {}
+      render();
+    })();
   </script>
 </body>
 </html>
