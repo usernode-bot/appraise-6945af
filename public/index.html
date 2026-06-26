@@ -307,14 +307,14 @@
     // =========================================================================
     // VIEW: create form
     // =========================================================================
-    function candRow(idx) {
+    // One selectable app row in the directory picker.
+    function appOptRow(a, idx) {
       return `
-        <div class="cand-row neon-card rounded-2xl p-3 grid grid-cols-1 sm:grid-cols-12 gap-2 tilt-${(idx%3)+1}">
-          <input class="c-name sm:col-span-4 bg-black/40 border-2 border-cyan-400/60 rounded-xl px-3 py-2 placeholder-zinc-500" placeholder="App name *">
-          <input class="c-url sm:col-span-4 bg-black/40 border-2 border-fuchsia-400/60 rounded-xl px-3 py-2 placeholder-zinc-500" placeholder="link (optional)">
-          <input class="c-owner sm:col-span-3 bg-black/40 border-2 border-yellow-400/60 rounded-xl px-3 py-2 placeholder-zinc-500" placeholder="owner @username">
-          <button class="c-del sm:col-span-1 chunky-btn bg-pink-500 text-white rounded-xl py-2" title="remove">✖</button>
-        </div>`;
+        <label class="app-opt flex items-center gap-3 neon-card rounded-2xl p-3 cursor-pointer tilt-${(idx%3)+1}">
+          <input type="checkbox" class="app-cb w-5 h-5 accent-emerald-400" data-id="${esc(a.id)}">
+          <span class="funky text-white">${pick(EMOJI)} ${esc(a.name)}</span>
+          ${a.slug ? `<span class="comic text-xs text-zinc-400 ml-auto break-all">${esc(a.slug)}</span>` : ''}
+        </label>`;
     }
 
     function renderCreate(root) {
@@ -350,11 +350,18 @@
 
           <div id="spread-note" class="comic text-sm text-emerald-300 mb-4"></div>
 
+          <label class="flex items-center gap-3 comic text-cyan-200 mb-4 cursor-pointer select-none neon-card rounded-2xl p-3">
+            <input id="f-self-vote" type="checkbox" class="w-5 h-5 accent-pink-500">
+            <span>🙋 Allow people to vote on their own app
+              <span class="text-zinc-400 text-sm">(off by default — contributors can't vote for their own app)</span>
+            </span>
+          </label>
+
           <div class="flex items-center justify-between mb-2">
-            <label class="comic text-cyan-200 text-lg">📦 Candidate apps (min 2)</label>
-            <button id="add-cand" class="chunky-btn bouncy bg-cyan-300 text-black px-3 py-1.5 rounded-xl">➕ add app</button>
+            <label class="comic text-cyan-200 text-lg">📦 Pick candidate apps (min 2)</label>
+            <button id="reload-apps" class="chunky-btn bouncy bg-cyan-300 text-black px-3 py-1.5 rounded-xl">🔄 reload</button>
           </div>
-          <div id="cands" class="space-y-2 mb-4"></div>
+          <div id="app-picker" class="space-y-2 mb-4 max-h-96 overflow-auto"></div>
 
           <button id="create" class="chunky-btn jiggly w-full bg-gradient-to-r from-emerald-400 via-yellow-300 to-pink-500 text-black text-xl py-4 rounded-2xl">
             🚀 CREATE ROUND (as draft)
@@ -363,17 +370,44 @@
         </div>`;
 
       $('#back', root).onclick = () => go('/');
-      const candsEl = $('#cands', root);
-      const addCand = () => {
-        const wrap = document.createElement('div');
-        wrap.innerHTML = candRow(candsEl.children.length);
-        const node = wrap.firstElementChild;
-        node.classList.add('pop-in');
-        node.querySelector('.c-del').onclick = () => node.remove();
-        candsEl.appendChild(node);
+
+      // ----- directory picker -----
+      const picker = $('#app-picker', root);
+      const createBtn = $('#create', root);
+      const selected = new Set(); // app ids the creator checked
+
+      const setCreateEnabled = (on) => {
+        createBtn.disabled = !on;
+        createBtn.classList.toggle('opacity-50', !on);
+        createBtn.classList.toggle('pointer-events-none', !on);
       };
-      $('#add-cand', root).onclick = addCand;
-      addCand(); addCand(); // start with two
+
+      async function loadApps() {
+        picker.innerHTML = `<div class="comic text-cyan-200 animate-pulse">loading apps from the directory… 🛰️</div>`;
+        setCreateEnabled(false);
+        try {
+          const data = await api('/api/apps');
+          const apps = data.apps || [];
+          if (!apps.length) {
+            picker.innerHTML = `<div class="comic text-yellow-300">😶 No apps found in the directory yet.</div>`;
+            return;
+          }
+          picker.innerHTML = apps.map((a, i) => appOptRow(a, i)).join('');
+          picker.querySelectorAll('.app-cb').forEach((cb) => {
+            const id = parseInt(cb.dataset.id, 10);
+            cb.checked = selected.has(id); // preserve selection across reloads
+            cb.onchange = () => { cb.checked ? selected.add(id) : selected.delete(id); };
+          });
+          setCreateEnabled(true);
+        } catch (e) {
+          picker.innerHTML = `<div class="comic text-pink-300">😬 ${esc(e.message)}<br>
+            Couldn't load the app list — <button id="retry-apps" class="underline text-cyan-300">try again</button>.</div>`;
+          const rb = $('#retry-apps', picker);
+          if (rb) rb.onclick = loadApps;
+        }
+      }
+      $('#reload-apps', root).onclick = loadApps;
+      loadApps();
 
       const vpv = $('#f-vpv', root);
       const spreadNote = $('#spread-note', root);
@@ -391,19 +425,14 @@
       aud.onchange = () => $('#invite-wrap', root).classList.toggle('hidden', aud.value !== 'invite');
 
       $('#create', root).onclick = async () => {
-        const candidates = [...candsEl.querySelectorAll('.cand-row')].map((r) => ({
-          app_name: r.querySelector('.c-name').value.trim(),
-          app_url: r.querySelector('.c-url').value.trim(),
-          owner_username: r.querySelector('.c-owner').value.trim(),
-        })).filter((c) => c.app_name);
-
         const payload = {
           title: $('#f-title', root).value.trim(),
           description: $('#f-desc', root).value.trim(),
           audience: aud.value,
           votes_per_voter: parseInt(vpv.value, 10) || 1,
           invitees: $('#f-invitees', root).value,
-          candidates,
+          allow_self_vote: $('#f-self-vote', root).checked,
+          candidate_app_ids: [...selected],
         };
         try {
           const out = await api('/api/rounds', { method: 'POST', body: JSON.stringify(payload) });
@@ -439,6 +468,7 @@
             <div>
               <h2 class="funky text-2xl text-white">${pick(EMOJI)} ${esc(r.title)}</h2>
               <div class="comic text-cyan-200 mt-1">${audLabel(r.audience)} · 🗳️ ${allowance} vote(s) each · by @${esc(r.creator_username)}</div>
+              <div class="comic text-sm mt-1 ${r.allow_self_vote ? 'text-emerald-300' : 'text-pink-300'}">${r.allow_self_vote ? '🙋 self-voting allowed' : '🚫 no self-voting — contributors can\'t vote for their own app'}</div>
             </div>
             ${statusBadge(r.status)}
           </div>
