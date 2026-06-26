@@ -501,6 +501,26 @@
         }
       }
 
+      // admin-only delete control — independent of creator status, set apart
+      // from the open/close controls so it isn't hit by accident.
+      if (ME && ME.is_admin) {
+        const wrap = document.createElement('div');
+        wrap.className = 'basis-full mt-1 pt-3 border-t-2 border-pink-500/40';
+        wrap.innerHTML = `<button id="del-r" class="chunky-btn bg-red-600 text-white px-4 py-2 rounded-xl">🗑️ Delete round</button>
+          <span class="comic text-pink-300 text-sm self-center ml-2">admin · permanent</span>`;
+        cc.appendChild(wrap);
+        $('#del-r', wrap).onclick = async () => {
+          if (!window.confirm(`Delete the round "${r.title}"? This permanently removes the round, all its candidate apps, and every ballot. This cannot be undone.`)) return;
+          try {
+            await api('/api/rounds/' + encodeURIComponent(slug), { method: 'DELETE' });
+            toast('Round deleted');
+            go('/');
+          } catch (e) {
+            toast(e.message, false);
+          }
+        };
+      }
+
       const body = $('#body', root);
 
       // ---- voting panel (only when open) ----

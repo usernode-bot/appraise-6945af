@@ -1,6 +1,13 @@
 {
   "name": "Appraise",
-  "secrets": [],
+  "secrets": [
+    {
+      "key": "ADMIN_USERNAMES",
+      "description": "Comma/space-separated list of Usernode usernames who can delete voting rounds. Leave unset for no admins in production.",
+      "required": false,
+      "private": true
+    }
+  ],
   "tests": [
     {
       "name": "Round list renders",
@@ -31,6 +38,11 @@
       "name": "Closed round shows results",
       "path": "/round/staging-best-game",
       "expectText": "RESULTS"
+    },
+    {
+      "name": "Admin delete affordance",
+      "path": "/round/staging-deletable-demo",
+      "expectText": "Delete round"
     }
   ],
   "visibility": {

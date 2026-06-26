@@ -46,6 +46,24 @@ app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
 const norm = (s) => (s == null ? '' : String(s).trim().toLowerCase());
 
+// Admin allowlist: usernames configured via the ADMIN_USERNAMES secret
+// (comma/space separated), parsed once at startup into a normalized Set so
+// lookups are case-insensitive. Empty by default → no admins in production.
+const ADMIN_USERNAMES = new Set(
+  String(process.env.ADMIN_USERNAMES || '')
+    .split(/[\s,]+/)
+    .map(norm)
+    .filter(Boolean)
+);
+
+// Who is an admin: anyone on the allowlist, plus everyone in staging so the
+// destructive delete affordance is exercisable against seeded fake data.
+function isAdmin(user) {
+  if (!user) return false;
+  if (IS_STAGING) return true;
+  return ADMIN_USERNAMES.has(norm(user.username));
+}
+
 // Platform public app directory — source of candidate apps + their
 // contributors. Snapshotted into a round at creation time.
 const APPS_DIRECTORY_URL = 'https://social-vibecoding.usernodelabs.org/api/public/apps';
@@ -187,7 +205,7 @@ function publicRound(round, extra = {}) {
 
 // Current user (handy for the frontend's "is this my app?" hints).
 app.get('/api/me', (req, res) => {
-  res.json({ id: req.user.id, username: req.user.username });
+  res.json({ id: req.user.id, username: req.user.username, is_admin: isAdmin(req.user) });
 });
 
 // Directory proxy: trimmed app list for the create-form picker. Routed
@@ -488,6 +506,24 @@ async function transition(req, res, to, from) {
 
 app.post('/api/rounds/:slug/open', (req, res) => transition(req, res, 'open', 'draft'));
 app.post('/api/rounds/:slug/close', (req, res) => transition(req, res, 'closed', 'open'));
+
+// Permanently delete a round (admin only). The admin check runs BEFORE any
+// existence lookup so non-admins can't probe which slugs exist. Child rows
+// (candidates, contributors, invitees, votes) all FK into rounds with
+// ON DELETE CASCADE, so a single DELETE removes everything — no orphans.
+app.delete('/api/rounds/:slug', async (req, res) => {
+  try {
+    if (!isAdmin(req.user)) {
+      return res.status(403).json({ error: 'Admins only.' });
+    }
+    const round = await getRoundBySlug(req.params.slug);
+    if (!round) return res.status(404).json({ error: 'Round not found.' });
+    await pool.query(`DELETE FROM rounds WHERE id = $1`, [round.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // Cast / replace a ballot.
 app.post('/api/rounds/:slug/vote', async (req, res) => {
@@ -871,6 +907,34 @@ async function seedStaging() {
       { app_name: 'Staging demo Open App Two', app_url: appUrlFromSlug('staging-demo-open-2'),
         external_app_id: 990013, app_slug: 'staging-demo-open-2', owner_username: 'staging-demo-maker-3',
         contributors: [{ user_id: 900103, username: 'staging-demo-maker-3' }] },
+    ],
+  });
+
+  // 6) Disposable round for exercising the admin delete affordance. Closed
+  //    with real ballots so the cascade visibly removes candidates AND votes.
+  //    Idempotent reseed on boot, so deleting it in staging is safe.
+  await seedRound({
+    slug: 'staging-deletable-demo',
+    title: 'Staging demo — Safe to Delete 🗑️',
+    description: 'Admins only: hit Delete round to remove this one. It reappears on the next staging boot. 🧹',
+    creator_user_id: 900001,
+    creator_username: 'staging-demo-host',
+    audience: 'everyone',
+    votes_per_voter: 2,
+    max_votes_per_app: 1,
+    status: 'closed',
+    candidates: [
+      { app_name: 'Staging demo Doomed App One', owner_username: 'staging-demo-maker-1',
+        contributors: [{ user_id: 900101, username: 'staging-demo-maker-1' }] },
+      { app_name: 'Staging demo Doomed App Two', owner_username: 'staging-demo-maker-2',
+        contributors: [{ user_id: 900102, username: 'staging-demo-maker-2' }] },
+      { app_name: 'Staging demo Doomed App Three', owner_username: 'staging-demo-maker-3',
+        contributors: [{ user_id: 900103, username: 'staging-demo-maker-3' }] },
+    ],
+    ballots: [
+      { voter: 'staging-demo-voter-1', voter_id: 910001, picks: [0, 1] },
+      { voter: 'staging-demo-voter-2', voter_id: 910002, picks: [0, 2] },
+      { voter: 'staging-demo-voter-3', voter_id: 910003, picks: [1, 2] },
     ],
   });
 }
