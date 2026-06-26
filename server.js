@@ -46,6 +46,46 @@ app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
 const norm = (s) => (s == null ? '' : String(s).trim().toLowerCase());
 
+// Platform public app directory — source of candidate apps + their
+// contributors. Snapshotted into a round at creation time.
+const APPS_DIRECTORY_URL = 'https://social-vibecoding.usernodelabs.org/api/public/apps';
+
+// Obviously-fake fallback apps so the create-form picker is still usable in
+// staging when the live directory can't be reached (staging has no
+// guaranteed outbound). Never used in production. Contributor user_ids here
+// line up with the staging seed makers below.
+const STAGING_FALLBACK_APPS = [
+  { id: 990001, name: 'Staging demo App Alpha',   slug: 'staging-demo-alpha',
+    contributors: [{ user_id: 900101, username: 'staging-demo-maker-1', wallet_address: null }] },
+  { id: 990002, name: 'Staging demo App Bravo',   slug: 'staging-demo-bravo',
+    contributors: [{ user_id: 900102, username: 'staging-demo-maker-2', wallet_address: null }] },
+  { id: 990003, name: 'Staging demo App Charlie', slug: 'staging-demo-charlie',
+    contributors: [{ user_id: 900103, username: 'staging-demo-maker-3', wallet_address: null }] },
+  { id: 990004, name: 'Staging demo App Delta',   slug: 'staging-demo-delta',
+    contributors: [{ user_id: 900104, username: 'staging-demo-maker-4', wallet_address: null }] },
+];
+
+// Fetch the platform's public app directory. Throws on timeout / non-2xx /
+// network error so callers can surface "directory unreachable"; in staging
+// callers may fall back to STAGING_FALLBACK_APPS.
+async function fetchDirectoryApps() {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5000);
+  try {
+    const res = await fetch(APPS_DIRECTORY_URL, { signal: controller.signal });
+    if (!res.ok) throw new Error(`directory responded ${res.status}`);
+    const data = await res.json();
+    return Array.isArray(data && data.apps) ? data.apps : [];
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Build a viewable link for a directory app from its slug (or null).
+function appUrlFromSlug(slug) {
+  return slug ? `https://social-vibecoding.usernodelabs.org/#app/${slug}` : null;
+}
+
 function slugify(title) {
   const base = String(title || 'round')
     .toLowerCase()
@@ -75,11 +115,27 @@ async function getRoundBySlug(slug) {
 
 async function loadCandidates(roundId) {
   const { rows } = await pool.query(
-    `SELECT id, app_name, app_url, owner_username, position
+    `SELECT id, app_name, app_url, owner_username, position, external_app_id, app_slug
        FROM round_candidates WHERE round_id = $1 ORDER BY position ASC, id ASC`,
     [roundId]
   );
   return rows;
+}
+
+// Map candidate_id -> array of { user_id, username } captured at round
+// creation. Used for is_own marking and server-side self-vote enforcement.
+async function loadContributorsByCandidate(roundId) {
+  const { rows } = await pool.query(
+    `SELECT candidate_id, user_id, username
+       FROM round_candidate_contributors WHERE round_id = $1`,
+    [roundId]
+  );
+  const byCand = new Map();
+  for (const r of rows) {
+    if (!byCand.has(r.candidate_id)) byCand.set(r.candidate_id, []);
+    byCand.get(r.candidate_id).push({ user_id: r.user_id, username: r.username });
+  }
+  return byCand;
 }
 
 async function myAllocation(roundId, userId) {
@@ -118,6 +174,7 @@ function publicRound(round, extra = {}) {
     votes_per_voter: round.votes_per_voter,
     max_votes_per_app: round.max_votes_per_app,
     status: round.status,
+    allow_self_vote: !!round.allow_self_vote,
     creator_username: round.creator_username,
     created_at: round.created_at,
     ...extra,
@@ -131,6 +188,24 @@ function publicRound(round, extra = {}) {
 // Current user (handy for the frontend's "is this my app?" hints).
 app.get('/api/me', (req, res) => {
   res.json({ id: req.user.id, username: req.user.username });
+});
+
+// Directory proxy: trimmed app list for the create-form picker. Routed
+// server-side to avoid CORS and centralise the timeout/fallback. Gated by
+// the existing auth middleware (no PUBLIC_API_PATHS change).
+app.get('/api/apps', async (req, res) => {
+  try {
+    const apps = await fetchDirectoryApps();
+    res.json({ apps: apps.map((a) => ({ id: a.id, name: a.name, slug: a.slug })) });
+  } catch (err) {
+    if (IS_STAGING) {
+      return res.json({
+        apps: STAGING_FALLBACK_APPS.map((a) => ({ id: a.id, name: a.name, slug: a.slug })),
+        fallback: true,
+      });
+    }
+    res.status(502).json({ error: "Couldn't reach the app directory — try again in a moment." });
+  }
 });
 
 // List rounds the user may see.
@@ -174,30 +249,79 @@ app.post('/api/rounds', async (req, res) => {
     const title = String(body.title || '').trim();
     const description = String(body.description || '').trim();
     const audience = body.audience === 'invite' ? 'invite' : 'everyone';
+    const allowSelfVote = body.allow_self_vote === true || body.allow_self_vote === 'true';
     let votesPerVoter = parseInt(body.votes_per_voter, 10);
     if (!Number.isFinite(votesPerVoter) || votesPerVoter < 1) votesPerVoter = 1;
     if (votesPerVoter > 100) votesPerVoter = 100;
 
     if (!title) return res.status(400).json({ error: 'A title is required.' });
 
-    // Candidates: [{ app_name, app_url, owner_username }]
-    const rawCands = Array.isArray(body.candidates) ? body.candidates : [];
+    // Selected directory app ids. The client sends ONLY ids — contributors are
+    // resolved authoritatively server-side below, never trusted from the
+    // client (else a creator could strip themselves out to unlock self-votes).
+    const rawIds = Array.isArray(body.candidate_app_ids) ? body.candidate_app_ids : [];
+    const wantIds = [];
+    const seenIds = new Set();
+    for (const raw of rawIds) {
+      const id = parseInt(raw, 10);
+      if (!Number.isFinite(id) || seenIds.has(id)) continue;
+      seenIds.add(id);
+      wantIds.push(id);
+    }
+    if (wantIds.length < 2) {
+      return res.status(400).json({ error: 'Pick at least 2 candidate apps.' });
+    }
+
+    // Fetch the directory server-side. Contributor user_ids come from here
+    // only; we assume req.user.id shares an id space with the directory's
+    // contributors[].user_id (both are the platform user id).
+    let directory;
+    try {
+      directory = await fetchDirectoryApps();
+    } catch (fetchErr) {
+      if (IS_STAGING) {
+        directory = STAGING_FALLBACK_APPS;
+      } else {
+        // No transaction started yet; the finally block releases the client.
+        return res.status(502).json({ error: "Couldn't reach the app directory — try again in a moment." });
+      }
+    }
+    const dirById = new Map(directory.map((a) => [a.id, a]));
+
+    // Build candidates from matched ids, preserving the creator's pick order.
     const seen = new Set();
     const candidates = [];
-    for (const c of rawCands) {
-      const name = String((c && c.app_name) || '').trim();
+    for (const id of wantIds) {
+      const appRec = dirById.get(id);
+      if (!appRec) continue; // dropped: no longer in the directory
+      const name = String(appRec.name || '').trim().slice(0, 120);
       if (!name) continue;
       const key = name.toLowerCase();
-      if (seen.has(key)) continue;
+      if (seen.has(key)) continue; // respect UNIQUE (round_id, app_name)
       seen.add(key);
+
+      const rawContribs = Array.isArray(appRec.contributors) ? appRec.contributors : [];
+      const contributors = [];
+      const seenU = new Set();
+      for (const c of rawContribs) {
+        const uid = parseInt(c && c.user_id, 10);
+        if (!Number.isFinite(uid) || seenU.has(uid)) continue;
+        seenU.add(uid);
+        contributors.push({ user_id: uid, username: String((c && c.username) || '').slice(0, 80) || null });
+      }
+      const appSlug = String(appRec.slug || '').trim().slice(0, 200) || null;
+      const ownerLabel = contributors.map((c) => c.username).filter(Boolean).join(', ').slice(0, 80) || null;
       candidates.push({
-        app_name: name.slice(0, 120),
-        app_url: String((c && c.app_url) || '').trim().slice(0, 500) || null,
-        owner_username: String((c && c.owner_username) || '').trim().slice(0, 80) || null,
+        external_app_id: id,
+        app_name: name,
+        app_slug: appSlug,
+        app_url: appUrlFromSlug(appSlug),
+        owner_username: ownerLabel,
+        contributors,
       });
     }
     if (candidates.length < 2) {
-      return res.status(400).json({ error: 'Add at least 2 candidate apps.' });
+      return res.status(400).json({ error: 'Add at least 2 candidate apps from the directory.' });
     }
 
     // Spread cap: never allow ALL votes on one app when you have 2+.
@@ -236,22 +360,34 @@ app.post('/api/rounds', async (req, res) => {
     const roundIns = await client.query(
       `INSERT INTO rounds
          (slug, title, description, creator_user_id, creator_username,
-          audience, votes_per_voter, max_votes_per_app, status)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'draft')
+          audience, votes_per_voter, max_votes_per_app, status, allow_self_vote)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'draft',$9)
        RETURNING *`,
       [slug, title.slice(0, 140), description.slice(0, 2000), u.id, u.username,
-       audience, votesPerVoter, maxPerApp]
+       audience, votesPerVoter, maxPerApp, allowSelfVote]
     );
     const round = roundIns.rows[0];
 
     for (let i = 0; i < candidates.length; i++) {
       const c = candidates[i];
-      await client.query(
-        `INSERT INTO round_candidates (round_id, app_name, app_url, owner_username, position)
-         VALUES ($1,$2,$3,$4,$5)
-         ON CONFLICT (round_id, app_name) DO NOTHING`,
-        [round.id, c.app_name, c.app_url, c.owner_username, i]
+      const candIns = await client.query(
+        `INSERT INTO round_candidates
+           (round_id, app_name, app_url, owner_username, position, external_app_id, app_slug)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)
+         ON CONFLICT (round_id, app_name) DO NOTHING
+         RETURNING id`,
+        [round.id, c.app_name, c.app_url, c.owner_username, i, c.external_app_id, c.app_slug]
       );
+      if (!candIns.rows.length) continue; // duplicate name collapsed
+      const candidateId = candIns.rows[0].id;
+      for (const ct of c.contributors) {
+        await client.query(
+          `INSERT INTO round_candidate_contributors (round_id, candidate_id, user_id, username)
+           VALUES ($1,$2,$3,$4)
+           ON CONFLICT (candidate_id, user_id) DO NOTHING`,
+          [round.id, candidateId, ct.user_id, ct.username]
+        );
+      }
     }
     for (const name of invitees) {
       await client.query(
@@ -282,18 +418,24 @@ app.get('/api/rounds/:slug', async (req, res) => {
 
     const isCreator = round.creator_user_id === u.id;
     const candidates = await loadCandidates(round.id);
+    const contribByCand = await loadContributorsByCandidate(round.id);
     const mine = await myAllocation(round.id, u.id);
     const hasVoted = Object.keys(mine).length > 0;
 
-    // Mark each candidate the viewer owns (case-insensitive on owner_username).
-    const cands = candidates.map((c) => ({
-      id: c.id,
-      app_name: c.app_name,
-      app_url: c.app_url,
-      owner_username: c.owner_username,
-      is_own: !!c.owner_username && norm(c.owner_username) === norm(u.username),
-      my_votes: mine[c.id] || 0,
-    }));
+    // Mark each candidate the viewer contributed to — but only when the round
+    // forbids self-voting. When allow_self_vote is on, nothing is "own".
+    const cands = candidates.map((c) => {
+      const contribs = contribByCand.get(c.id) || [];
+      const isContributor = contribs.some((x) => x.user_id === u.id);
+      return {
+        id: c.id,
+        app_name: c.app_name,
+        app_url: c.app_url,
+        owner_username: c.owner_username,
+        is_own: !round.allow_self_vote && isContributor,
+        my_votes: mine[c.id] || 0,
+      };
+    });
 
     const canVote = round.status === 'open';
 
@@ -363,6 +505,10 @@ app.post('/api/rounds/:slug/vote', async (req, res) => {
 
     const candidates = await loadCandidates(round.id);
     const byId = new Map(candidates.map((c) => [c.id, c]));
+    // Contributor membership only matters when self-voting is forbidden.
+    const contribByCand = round.allow_self_vote
+      ? new Map()
+      : await loadContributorsByCandidate(round.id);
 
     // Parse allocation: [{ candidate_id, votes }]
     const raw = Array.isArray(req.body && req.body.allocation) ? req.body.allocation : [];
@@ -378,8 +524,11 @@ app.post('/api/rounds/:slug/vote', async (req, res) => {
       if (n === 0) continue;
 
       const cand = byId.get(cid);
-      if (cand.owner_username && norm(cand.owner_username) === norm(u.username)) {
-        return res.status(400).json({ error: `You can't vote for your own app (${cand.app_name}).` });
+      if (!round.allow_self_vote) {
+        const contribs = contribByCand.get(cid) || [];
+        if (contribs.some((x) => x.user_id === u.id)) {
+          return res.status(400).json({ error: `You can't vote for your own app (${cand.app_name}).` });
+        }
       }
       if (n > round.max_votes_per_app) {
         return res.status(400).json({
@@ -486,6 +635,10 @@ async function migrate() {
       created_at TIMESTAMPTZ DEFAULT NOW()
     )
   `);
+  // Per-round toggle: when false (default) contributors can't vote for their
+  // own app; when true there are no self-vote restrictions.
+  await pool.query(`ALTER TABLE rounds ADD COLUMN IF NOT EXISTS allow_self_vote BOOLEAN NOT NULL DEFAULT false`);
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS round_candidates (
       id SERIAL PRIMARY KEY,
@@ -497,6 +650,24 @@ async function migrate() {
       UNIQUE (round_id, app_name)
     )
   `);
+  // Which directory app each candidate was sourced from (snapshot).
+  await pool.query(`ALTER TABLE round_candidates ADD COLUMN IF NOT EXISTS external_app_id INTEGER`);
+  await pool.query(`ALTER TABLE round_candidates ADD COLUMN IF NOT EXISTS app_slug TEXT`);
+
+  // Contributors captured per candidate at round creation. Sourced from the
+  // PUBLIC app directory, so this is public info — table stays public and
+  // only FKs into public tables (rounds / round_candidates).
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS round_candidate_contributors (
+      id SERIAL PRIMARY KEY,
+      round_id INTEGER NOT NULL REFERENCES rounds(id) ON DELETE CASCADE,
+      candidate_id INTEGER NOT NULL REFERENCES round_candidates(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL,
+      username TEXT,
+      UNIQUE (candidate_id, user_id)
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS rcc_round_idx ON round_candidate_contributors (round_id)`);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS round_invitees (
       id SERIAL PRIMARY KEY,
@@ -528,12 +699,13 @@ async function seedRound(spec) {
   const r = await pool.query(
     `INSERT INTO rounds
        (slug, title, description, creator_user_id, creator_username,
-        audience, votes_per_voter, max_votes_per_app, status)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+        audience, votes_per_voter, max_votes_per_app, status, allow_self_vote)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
      ON CONFLICT (slug) DO NOTHING
      RETURNING id`,
     [spec.slug, spec.title, spec.description, spec.creator_user_id, spec.creator_username,
-     spec.audience, spec.votes_per_voter, spec.max_votes_per_app, spec.status]
+     spec.audience, spec.votes_per_voter, spec.max_votes_per_app, spec.status,
+     spec.allow_self_vote === true]
   );
   if (r.rows.length === 0) return; // already seeded — stay idempotent
   const roundId = r.rows[0].id;
@@ -542,11 +714,22 @@ async function seedRound(spec) {
   for (let i = 0; i < spec.candidates.length; i++) {
     const c = spec.candidates[i];
     const ci = await pool.query(
-      `INSERT INTO round_candidates (round_id, app_name, app_url, owner_username, position)
-       VALUES ($1,$2,$3,$4,$5) RETURNING id`,
-      [roundId, c.app_name, c.app_url || null, c.owner_username || null, i]
+      `INSERT INTO round_candidates
+         (round_id, app_name, app_url, owner_username, position, external_app_id, app_slug)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+      [roundId, c.app_name, c.app_url || null, c.owner_username || null, i,
+       c.external_app_id || null, c.app_slug || null]
     );
-    candIds.push(ci.rows[0].id);
+    const candidateId = ci.rows[0].id;
+    candIds.push(candidateId);
+    for (const ct of (c.contributors || [])) {
+      await pool.query(
+        `INSERT INTO round_candidate_contributors (round_id, candidate_id, user_id, username)
+         VALUES ($1,$2,$3,$4)
+         ON CONFLICT (candidate_id, user_id) DO NOTHING`,
+        [roundId, candidateId, ct.user_id, ct.username || null]
+      );
+    }
   }
   for (const name of (spec.invitees || [])) {
     await pool.query(
@@ -582,10 +765,18 @@ async function seedStaging() {
     max_votes_per_app: 2,
     status: 'open',
     candidates: [
-      { app_name: 'Staging demo App Alpha', app_url: 'https://example.com/alpha', owner_username: 'staging-demo-maker-1' },
-      { app_name: 'Staging demo App Bravo', app_url: 'https://example.com/bravo', owner_username: 'staging-demo-maker-2' },
-      { app_name: 'Staging demo App Charlie', app_url: 'https://example.com/charlie', owner_username: 'staging-demo-maker-3' },
-      { app_name: 'Staging demo App Delta', app_url: 'https://example.com/delta', owner_username: 'staging-demo-maker-4' },
+      { app_name: 'Staging demo App Alpha', app_url: 'https://example.com/alpha', owner_username: 'staging-demo-maker-1',
+        external_app_id: 990001, app_slug: 'staging-demo-alpha',
+        contributors: [{ user_id: 900101, username: 'staging-demo-maker-1' }] },
+      { app_name: 'Staging demo App Bravo', app_url: 'https://example.com/bravo', owner_username: 'staging-demo-maker-2',
+        external_app_id: 990002, app_slug: 'staging-demo-bravo',
+        contributors: [{ user_id: 900102, username: 'staging-demo-maker-2' }] },
+      { app_name: 'Staging demo App Charlie', app_url: 'https://example.com/charlie', owner_username: 'staging-demo-maker-3',
+        external_app_id: 990003, app_slug: 'staging-demo-charlie',
+        contributors: [{ user_id: 900103, username: 'staging-demo-maker-3' }] },
+      { app_name: 'Staging demo App Delta', app_url: 'https://example.com/delta', owner_username: 'staging-demo-maker-4',
+        external_app_id: 990004, app_slug: 'staging-demo-delta',
+        contributors: [{ user_id: 900104, username: 'staging-demo-maker-4' }] },
     ],
   });
 
@@ -601,9 +792,12 @@ async function seedStaging() {
     max_votes_per_app: 1,
     status: 'closed',
     candidates: [
-      { app_name: 'Staging demo Game One', owner_username: 'staging-demo-maker-1' },
-      { app_name: 'Staging demo Game Two', owner_username: 'staging-demo-maker-2' },
-      { app_name: 'Staging demo Game Three', owner_username: 'staging-demo-maker-3' },
+      { app_name: 'Staging demo Game One', owner_username: 'staging-demo-maker-1',
+        contributors: [{ user_id: 900101, username: 'staging-demo-maker-1' }] },
+      { app_name: 'Staging demo Game Two', owner_username: 'staging-demo-maker-2',
+        contributors: [{ user_id: 900102, username: 'staging-demo-maker-2' }] },
+      { app_name: 'Staging demo Game Three', owner_username: 'staging-demo-maker-3',
+        contributors: [{ user_id: 900103, username: 'staging-demo-maker-3' }] },
     ],
     ballots: [
       { voter: 'staging-demo-voter-1', voter_id: 910001, picks: [0, 1] },
@@ -626,10 +820,58 @@ async function seedStaging() {
     max_votes_per_app: 1,
     status: 'draft',
     candidates: [
-      { app_name: 'Staging demo Secret App X', owner_username: 'staging-demo-maker-1' },
-      { app_name: 'Staging demo Secret App Y', owner_username: 'staging-demo-maker-2' },
+      { app_name: 'Staging demo Secret App X', owner_username: 'staging-demo-maker-1',
+        contributors: [{ user_id: 900101, username: 'staging-demo-maker-1' }] },
+      { app_name: 'Staging demo Secret App Y', owner_username: 'staging-demo-maker-2',
+        contributors: [{ user_id: 900102, username: 'staging-demo-maker-2' }] },
     ],
     invitees: ['staging-demo-guest-1', 'staging-demo-guest-2'],
+  });
+
+  // 4) Self-vote OFF (default) — the host (900001) is a contributor on the
+  //    first app, so opening this round AS the host shows that card blocked.
+  await seedRound({
+    slug: 'staging-selfvote-off',
+    title: 'Staging demo — Self-Vote Showcase (no self-voting)',
+    description: 'Self-voting is OFF here: contributors can\'t vote for their own app. 🚫',
+    creator_user_id: 900001,
+    creator_username: 'staging-demo-host',
+    audience: 'everyone',
+    votes_per_voter: 2,
+    max_votes_per_app: 1,
+    status: 'open',
+    allow_self_vote: false,
+    candidates: [
+      { app_name: 'Staging demo Host\'s Own App', app_url: appUrlFromSlug('staging-demo-host-app'),
+        external_app_id: 990010, app_slug: 'staging-demo-host-app', owner_username: 'staging-demo-host',
+        contributors: [{ user_id: 900001, username: 'staging-demo-host' }] },
+      { app_name: 'Staging demo Rival App', app_url: appUrlFromSlug('staging-demo-rival'),
+        external_app_id: 990011, app_slug: 'staging-demo-rival', owner_username: 'staging-demo-maker-2',
+        contributors: [{ user_id: 900102, username: 'staging-demo-maker-2' }] },
+    ],
+  });
+
+  // 5) Self-vote ON — same shape, but everyone (including contributors) can
+  //    vote for any app.
+  await seedRound({
+    slug: 'staging-selfvote-on',
+    title: 'Staging demo — Self-Vote Showcase (self-voting allowed)',
+    description: 'Self-voting is ON here: anyone can vote for any app, even their own. 🙋',
+    creator_user_id: 900001,
+    creator_username: 'staging-demo-host',
+    audience: 'everyone',
+    votes_per_voter: 2,
+    max_votes_per_app: 1,
+    status: 'open',
+    allow_self_vote: true,
+    candidates: [
+      { app_name: 'Staging demo Open App One', app_url: appUrlFromSlug('staging-demo-open-1'),
+        external_app_id: 990012, app_slug: 'staging-demo-open-1', owner_username: 'staging-demo-host',
+        contributors: [{ user_id: 900001, username: 'staging-demo-host' }] },
+      { app_name: 'Staging demo Open App Two', app_url: appUrlFromSlug('staging-demo-open-2'),
+        external_app_id: 990013, app_slug: 'staging-demo-open-2', owner_username: 'staging-demo-maker-3',
+        contributors: [{ user_id: 900103, username: 'staging-demo-maker-3' }] },
+    ],
   });
 }
 
