@@ -2,11 +2,39 @@
   "name": "Appraise",
   "secrets": [],
   "tests": [
-    { "name": "Round list renders", "path": "/", "expectText": "Voting Rounds" },
-    { "name": "Create form opens", "path": "/create", "expectText": "Build a Voting Round" },
-    { "name": "Self-vote toggle present", "path": "/create", "expectText": "Allow people to vote on their own app" },
-    { "name": "Self-vote round shows note", "path": "/round/staging-selfvote-off", "expectText": "no self-voting" },
-    { "name": "Open round detail", "path": "/round/staging-fav-dev-tools", "expectText": "Favorite Dev Tools" },
-    { "name": "Closed round shows results", "path": "/round/staging-best-game", "expectText": "RESULTS" }
-  ]
+    {
+      "name": "Round list renders",
+      "path": "/",
+      "expectText": "Voting Rounds"
+    },
+    {
+      "name": "Create form opens",
+      "path": "/create",
+      "expectText": "Build a Voting Round"
+    },
+    {
+      "name": "Self-vote toggle present",
+      "path": "/create",
+      "expectText": "Allow people to vote on their own app"
+    },
+    {
+      "name": "Self-vote round shows note",
+      "path": "/round/staging-selfvote-off",
+      "expectText": "no self-voting"
+    },
+    {
+      "name": "Open round detail",
+      "path": "/round/staging-fav-dev-tools",
+      "expectText": "Favorite Dev Tools"
+    },
+    {
+      "name": "Closed round shows results",
+      "path": "/round/staging-best-game",
+      "expectText": "RESULTS"
+    }
+  ],
+  "visibility": {
+    "build": "private",
+    "view": "public"
+  }
 }
