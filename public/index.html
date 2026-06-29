@@ -251,6 +251,26 @@
     }
     const audLabel = (a) => a === 'invite' ? '🤫 Invited only' : '🌍 Everyone';
 
+    const EMPTY_LIST_HTML = `<div class="neon-card rounded-3xl p-8 text-center comic text-xl text-zinc-300">
+      No rounds yet… be the chaos you want to see 🌪️<br>Smash <b>CREATE A ROUND</b>!</div>`;
+
+    // Confirm + DELETE a round, shared by the list cards and the detail view so
+    // both entry points behave identically. Returns true on success, false if
+    // the user cancelled or the request failed (error is toasted here).
+    async function deleteRound(slug, title) {
+      if (!window.confirm(`Delete the round "${title}"? This permanently removes the round, all its candidate apps, and every ballot. This cannot be undone.`)) {
+        return false;
+      }
+      try {
+        await api('/api/rounds/' + encodeURIComponent(slug), { method: 'DELETE' });
+        toast('Round deleted');
+        return true;
+      } catch (e) {
+        toast(e.message, false);
+        return false;
+      }
+    }
+
     // =========================================================================
     // VIEW: round list
     // =========================================================================
@@ -274,12 +294,14 @@
 
       const list = $('#rounds', root);
       if (!rounds.length) {
-        list.innerHTML = `<div class="neon-card rounded-3xl p-8 text-center comic text-xl text-zinc-300">
-          No rounds yet… be the chaos you want to see 🌪️<br>Smash <b>CREATE A ROUND</b>!</div>`;
+        list.innerHTML = EMPTY_LIST_HTML;
         return;
       }
+      const isAdmin = !!(ME && ME.is_admin);
+      // The card is a clickable div (role=button) rather than a real <button>
+      // so the admin delete <button> can legally nest inside it.
       list.innerHTML = rounds.map((r, i) => `
-        <button data-slug="${esc(r.slug)}" class="round-row block w-full text-left neon-card rounded-3xl p-5 wobble tilt-${(i%3)+1}">
+        <div data-slug="${esc(r.slug)}" role="button" tabindex="0" class="round-row block w-full text-left neon-card rounded-3xl p-5 wobble tilt-${(i%3)+1} cursor-pointer">
           <div class="flex items-start justify-between gap-3">
             <div>
               <div class="funky text-xl text-white">${pick(EMOJI)} ${esc(r.title)}</div>
@@ -288,12 +310,31 @@
                 ${r.mine ? '· <span class="text-yellow-300">👑 yours</span>' : ''}
               </div>
             </div>
-            <div>${statusBadge(r.status)}</div>
+            <div class="flex items-center gap-2 shrink-0">
+              ${statusBadge(r.status)}
+              ${isAdmin ? `<button class="del-row chunky-btn bg-red-600 text-white px-2.5 py-1 rounded-lg text-sm" data-slug="${esc(r.slug)}" data-title="${esc(r.title)}" title="Delete round (admin · permanent)" aria-label="Delete round">🗑️</button>` : ''}
+            </div>
           </div>
-        </button>`).join('');
+        </div>`).join('');
 
       list.querySelectorAll('.round-row').forEach((el) => {
-        el.onclick = () => go('/round/' + el.dataset.slug);
+        const nav = () => go('/round/' + el.dataset.slug);
+        el.onclick = nav;
+        el.onkeydown = (e) => {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); nav(); }
+        };
+      });
+
+      list.querySelectorAll('.del-row').forEach((btn) => {
+        btn.onclick = async (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const ok = await deleteRound(btn.dataset.slug, btn.dataset.title);
+          if (!ok) return;
+          const card = btn.closest('.round-row');
+          if (card) card.remove();
+          if (!list.querySelector('.round-row')) list.innerHTML = EMPTY_LIST_HTML;
+        };
       });
     }
 
@@ -510,14 +551,7 @@
           <span class="comic text-pink-300 text-sm self-center ml-2">admin · permanent</span>`;
         cc.appendChild(wrap);
         $('#del-r', wrap).onclick = async () => {
-          if (!window.confirm(`Delete the round "${r.title}"? This permanently removes the round, all its candidate apps, and every ballot. This cannot be undone.`)) return;
-          try {
-            await api('/api/rounds/' + encodeURIComponent(slug), { method: 'DELETE' });
-            toast('Round deleted');
-            go('/');
-          } catch (e) {
-            toast(e.message, false);
-          }
+          if (await deleteRound(slug, r.title)) go('/');
         };
       }
 

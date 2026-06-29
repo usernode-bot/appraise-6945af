@@ -43,6 +43,11 @@
       "name": "Admin delete affordance",
       "path": "/round/staging-deletable-demo",
       "expectText": "Delete round"
+    },
+    {
+      "name": "List shows admin delete buttons",
+      "path": "/",
+      "expectSelector": ".del-row"
     }
   ],
   "visibility": {
