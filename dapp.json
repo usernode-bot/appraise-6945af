@@ -43,6 +43,20 @@
       "name": "Admin delete affordance",
       "path": "/round/staging-deletable-demo",
       "expectText": "Delete round"
+    },
+    {
+      "name": "List shows admin delete buttons",
+      "path": "/",
+      "expectSelector": ".del-row"
+    },
+    {
+      "name": "Public voter leaderboard API",
+      "path": "/api/leaderboard?round=staging-voting-progress",
+      "expectText": "votes_remaining"
+    },
+    {
+      "name": "Favicon resolves without auth",
+      "path": "/favicon.ico"
     }
   ],
   "visibility": {
