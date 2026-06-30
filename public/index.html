@@ -543,16 +543,48 @@
       }
 
       // admin-only delete control — independent of creator status, set apart
-      // from the open/close controls so it isn't hit by accident.
+      // from the open/close controls so it isn't hit by accident. Confirmation
+      // is an in-app two-step prompt rather than window.confirm(): native
+      // modals are suppressed in the platform's embedded iframe, so a
+      // window.confirm() gate silently returns false and the delete never fires.
       if (ME && ME.is_admin) {
         const wrap = document.createElement('div');
         wrap.className = 'basis-full mt-1 pt-3 border-t-2 border-pink-500/40';
-        wrap.innerHTML = `<button id="del-r" class="chunky-btn bg-red-600 text-white px-4 py-2 rounded-xl">🗑️ Delete round</button>
-          <span class="comic text-pink-300 text-sm self-center ml-2">admin · permanent</span>`;
         cc.appendChild(wrap);
-        $('#del-r', wrap).onclick = async () => {
-          if (await deleteRound(slug, r.title)) go('/');
+
+        // Step 1: the resting Delete button.
+        const renderIdle = () => {
+          wrap.innerHTML = `<button id="del-r" class="chunky-btn bg-red-600 text-white px-4 py-2 rounded-xl">🗑️ Delete round</button>
+            <span class="comic text-pink-300 text-sm self-center ml-2">admin · permanent</span>`;
+          $('#del-r', wrap).onclick = renderConfirm;
         };
+
+        // Step 2: in-app confirmation with explicit Yes/Cancel.
+        const renderConfirm = () => {
+          wrap.innerHTML = `
+            <div class="comic text-pink-200 mb-2">⚠️ Delete the round "${esc(r.title)}"? This permanently removes the round, all its candidate apps, and every ballot. This cannot be undone.</div>
+            <div class="flex gap-2 flex-wrap">
+              <button id="del-yes" class="chunky-btn bg-red-600 text-white px-4 py-2 rounded-xl">🗑️ Yes, delete</button>
+              <button id="del-no" class="chunky-btn bg-zinc-700 text-white px-4 py-2 rounded-xl">Cancel</button>
+            </div>`;
+          $('#del-no', wrap).onclick = renderIdle;
+          const yes = $('#del-yes', wrap);
+          yes.onclick = async () => {
+            if (yes.disabled) return;        // guard against double-fire
+            yes.disabled = true;
+            yes.textContent = '🗑️ Deleting…';
+            try {
+              await api('/api/rounds/' + encodeURIComponent(slug), { method: 'DELETE' });
+              toast('Round deleted');
+              go('/');
+            } catch (e) {
+              toast(e.message, false);
+              renderIdle();                  // restore so the admin can retry
+            }
+          };
+        };
+
+        renderIdle();
       }
 
       const body = $('#body', root);
