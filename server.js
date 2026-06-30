@@ -640,6 +640,19 @@ app.get('/api/rounds/:slug', async (req, res) => {
         const missingNames = candidates
           .filter((c) => c.app_slug && missingSet.has(norm(c.app_slug)))
           .map((c) => c.app_name);
+        // Per-candidate tested status so the UI can show an inline notice and
+        // disable that card's steppers. `cands` and `candidates` are parallel
+        // arrays (cands = candidates.map). Slug-less candidates aren't in the
+        // verified scope → treated as tested (not applicable), matching how
+        // requiredSlugs is built. When the check couldn't run, mark slugged
+        // candidates testedUnknown so the UI shows the neutral message.
+        cands.forEach((c, i) => {
+          const slug = candidates[i].app_slug;
+          if (!slug) { c.tested = true; c.testedUnknown = false; return; }
+          if (r.unverifiable) { c.tested = false; c.testedUnknown = true; return; }
+          c.tested = !missingSet.has(norm(slug));
+          c.testedUnknown = false;
+        });
         eligibility = {
           requireTestedAll: true,
           eligible: r.unverifiable ? null : r.eligible,

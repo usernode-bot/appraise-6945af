@@ -624,19 +624,35 @@
           <p class="comic text-zinc-400 text-center text-sm mt-2">cap: max ${cap} on any one app · your ballot is secret 🤐</p>`;
 
         const cardsEl = $('#cards', body);
-        cardsEl.innerHTML = d.candidates.map((c, i) => `
-          <div class="cand neon-card rounded-2xl p-4 tilt-${(i%3)+1} ${c.is_own ? 'opacity-70' : ''}" data-id="${c.id}">
-            <div class="funky text-lg text-white">${pick(EMOJI)} ${esc(c.app_name)}</div>
-            ${c.app_url ? `<a href="${esc(c.app_url)}" target="_blank" rel="noopener" class="comic text-cyan-300 text-sm underline break-all">${esc(c.app_url)}</a>` : ''}
-            ${c.owner_username ? `<div class="comic text-xs text-zinc-400 mt-0.5">by @${esc(c.owner_username)}</div>` : ''}
-            ${c.is_own
-              ? `<div class="comic text-yellow-300 mt-3">🚫 that's YOUR app — no self-voting, you sneaky genius 😏</div>`
+        cardsEl.innerHTML = d.candidates.map((c, i) => {
+          // is_own wins over the untested notice. "untested" only applies when
+          // the server marked this candidate tested:false (require_tested_all
+          // rounds where the viewer hasn't tested it / couldn't be verified).
+          const untested = !c.is_own && c.tested === false;
+          const dim = (c.is_own || untested) ? 'opacity-70' : '';
+          const notice = untested
+            ? (c.testedUnknown
+                ? `<div class="comic text-pink-200 text-sm mt-2">⚠️ We couldn't verify whether you've tested this app — try again in a moment.</div>`
+                : `<div class="comic text-yellow-300 text-sm mt-2">🧪 You haven't tested this app yet — try it before you can vote for it.</div>`)
+            : '';
+          const controls = c.is_own
+            ? `<div class="comic text-yellow-300 mt-3">🚫 that's YOUR app — no self-voting, you sneaky genius 😏</div>`
+            : untested
+              ? `<div class="comic text-zinc-400 text-sm mt-3">🔒 voting locked until you test this app</div>`
               : `<div class="flex items-center justify-center gap-4 mt-3">
                    <button class="dec chunky-btn bg-pink-500 text-white w-11 h-11 rounded-full text-2xl leading-none">−</button>
                    <span class="cnt funky text-3xl w-10 text-center text-yellow-300">0</span>
                    <button class="inc chunky-btn bg-emerald-400 text-black w-11 h-11 rounded-full text-2xl leading-none">+</button>
-                 </div>`}
-          </div>`).join('');
+                 </div>`;
+          return `
+          <div class="cand neon-card rounded-2xl p-4 tilt-${(i%3)+1} ${dim}" data-id="${c.id}">
+            <div class="funky text-lg text-white">${pick(EMOJI)} ${esc(c.app_name)}</div>
+            ${notice}
+            ${c.app_url ? `<a href="${esc(c.app_url)}" target="_blank" rel="noopener" class="comic text-cyan-300 text-sm underline break-all">${esc(c.app_url)}</a>` : ''}
+            ${c.owner_username ? `<div class="comic text-xs text-zinc-400 mt-0.5">by @${esc(c.owner_username)}</div>` : ''}
+            ${controls}
+          </div>`;
+        }).join('');
 
         const tally = $('#tally', body);
         const total = () => Object.values(alloc).reduce((s, n) => s + n, 0);
