@@ -12,7 +12,7 @@ const IS_STAGING = process.env.USERNODE_ENV === 'staging';
 // Paths that stay open without authentication. Add a path here (and add it
 // with `app.get`/`app.post` below) if you deliberately want it public.
 // Everything else requires a valid platform-issued JWT.
-const PUBLIC_API_PATHS = new Set(['/health']);
+const PUBLIC_API_PATHS = new Set(['/health', '/api/leaderboard']);
 const PUBLIC_PREFIXES = ['/explorer-api/'];
 
 app.use(express.json());
@@ -218,6 +218,74 @@ function publicRound(round, extra = {}) {
 // Current user (handy for the frontend's "is this my app?" hints).
 app.get('/api/me', (req, res) => {
   res.json({ id: req.user.id, username: req.user.username, is_admin: isAdmin(req.user) });
+});
+
+// PUBLIC, read-only per-round voter-participation leaderboard. Unauthenticated
+// (its exact path is in PUBLIC_API_PATHS) so it must NOT touch req.user. Takes
+// the round slug via ?round=<slug> — a query param, not a path segment, so the
+// exact-match auth gate keeps working. Serves only public ('everyone') rounds;
+// invite-only and unknown rounds both 404 so private rosters never leak.
+app.get('/api/leaderboard', async (req, res) => {
+  try {
+    const slug = String(req.query.round || '').trim();
+    if (!slug) {
+      return res.status(400).json({ error: 'A round is required (e.g. ?round=<slug>).' });
+    }
+
+    const round = await getRoundBySlug(slug);
+    // Same 404 for missing and invite-only so we don't reveal private rounds.
+    if (!round || round.audience !== 'everyone') {
+      return res.status(404).json({ error: 'Round not found.' });
+    }
+
+    let limit = parseInt(req.query.limit, 10);
+    if (!Number.isFinite(limit)) limit = 100;
+    if (limit < 1) limit = 1;
+    if (limit > 500) limit = 500;
+    let offset = parseInt(req.query.offset, 10);
+    if (!Number.isFinite(offset) || offset < 0) offset = 0;
+
+    const totals = await pool.query(
+      `SELECT COUNT(DISTINCT voter_user_id)::int AS n FROM votes WHERE round_id = $1`,
+      [round.id]
+    );
+    const count = totals.rows[0] ? totals.rows[0].n : 0;
+
+    const { rows } = await pool.query(
+      `SELECT voter_user_id AS user_id,
+              MAX(voter_username) AS username,
+              COUNT(*)::int AS votes_cast
+         FROM votes
+        WHERE round_id = $1
+        GROUP BY voter_user_id
+        ORDER BY votes_cast DESC, username ASC
+        LIMIT $2 OFFSET $3`,
+      [round.id, limit, offset]
+    );
+
+    const voters = rows.map((r) => ({
+      user_id: r.user_id,
+      username: r.username,
+      votes_cast: r.votes_cast,
+      votes_remaining: Math.max(0, round.votes_per_voter - r.votes_cast),
+    }));
+
+    res.json({
+      round: {
+        slug: round.slug,
+        title: round.title,
+        status: round.status,
+        votes_per_voter: round.votes_per_voter,
+        max_votes_per_app: round.max_votes_per_app,
+      },
+      voters,
+      count,
+      limit,
+      offset,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Directory proxy: trimmed app list for the create-form picker. Routed
@@ -947,6 +1015,36 @@ async function seedStaging() {
       { voter: 'staging-demo-voter-1', voter_id: 910001, picks: [0, 1] },
       { voter: 'staging-demo-voter-2', voter_id: 910002, picks: [0, 2] },
       { voter: 'staging-demo-voter-3', voter_id: 910003, picks: [1, 2] },
+    ],
+  });
+
+  // 7) Open "everyone" round that exercises the public voter-participation
+  //    endpoint (/api/leaderboard?round=staging-voting-progress). 3 votes each,
+  //    with ballots deliberately leaving a spread of unspent votes so the
+  //    votes_remaining math is visible: voter-1 cast 1 (remaining 2),
+  //    voter-2 cast 2 (remaining 1), voter-3 cast 3 (remaining 0).
+  await seedRound({
+    slug: 'staging-voting-progress',
+    title: 'Staging demo — Voting In Progress 🗳️',
+    description: 'Open round with partial ballots — watch unspent votes via the public leaderboard API. 📊',
+    creator_user_id: 900001,
+    creator_username: 'staging-demo-host',
+    audience: 'everyone',
+    votes_per_voter: 3,
+    max_votes_per_app: 2,
+    status: 'open',
+    candidates: [
+      { app_name: 'Staging demo Progress App One', owner_username: 'staging-demo-maker-1',
+        contributors: [{ user_id: 900101, username: 'staging-demo-maker-1' }] },
+      { app_name: 'Staging demo Progress App Two', owner_username: 'staging-demo-maker-2',
+        contributors: [{ user_id: 900102, username: 'staging-demo-maker-2' }] },
+      { app_name: 'Staging demo Progress App Three', owner_username: 'staging-demo-maker-3',
+        contributors: [{ user_id: 900103, username: 'staging-demo-maker-3' }] },
+    ],
+    ballots: [
+      { voter: 'staging-demo-voter-1', voter_id: 910001, picks: [0] },          // 1 cast → 2 remaining
+      { voter: 'staging-demo-voter-2', voter_id: 910002, picks: [0, 1] },       // 2 cast → 1 remaining
+      { voter: 'staging-demo-voter-3', voter_id: 910003, picks: [0, 1, 2] },    // 3 cast → 0 remaining
     ],
   });
 }

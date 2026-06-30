@@ -50,6 +50,11 @@
       "expectSelector": ".del-row"
     },
     {
+      "name": "Public voter leaderboard API",
+      "path": "/api/leaderboard?round=staging-voting-progress",
+      "expectText": "votes_remaining"
+    },
+    {
       "name": "Favicon resolves without auth",
       "path": "/favicon.ico"
     }
