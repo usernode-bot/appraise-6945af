@@ -40,6 +40,18 @@ app.use((req, res, next) => {
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
+// Favicon: browsers auto-request /favicon.ico on every page. Without an
+// explicit handler it falls through express.static (no file) to the
+// auth-gated HTML catch-all below, which 401s for the tokenless browser
+// request — surfacing a console error that fails the no-console-errors CI
+// baseline on every route. Answer with 204 No Content (no auth) so the
+// request resolves cleanly with no asset to decode. Placed before the
+// catch-all and never gated.
+app.get('/favicon.ico', (_req, res) => {
+  res.set('Cache-Control', 'public, max-age=86400');
+  res.status(204).end();
+});
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
