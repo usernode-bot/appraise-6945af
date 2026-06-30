@@ -635,6 +635,13 @@ app.get('/api/rounds/:slug/results', async (req, res) => {
 
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Favicon: browsers auto-request /favicon.ico with no platform token, so
+// without this it falls through to the catch-all and 401s — a console error
+// that trips the no-console-errors check on every route. We don't ship an
+// icon asset, so resolve it cleanly with 204 No Content. It's a GET outside
+// /api/, so the auth gate already lets it through.
+app.get('/favicon.ico', (_req, res) => res.status(204).end());
+
 // HTML shell: serve the app if authenticated, otherwise an "open in Usernode"
 // landing page so stray visits to the staging URL don't reveal the app.
 app.get('*', (req, res) => {
