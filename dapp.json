@@ -48,6 +48,11 @@
       "name": "List shows admin delete buttons",
       "path": "/",
       "expectSelector": ".del-row"
+    },
+    {
+      "name": "Public voter leaderboard API",
+      "path": "/api/leaderboard?round=staging-voting-progress",
+      "expectText": "votes_remaining"
     }
   ],
   "visibility": {
