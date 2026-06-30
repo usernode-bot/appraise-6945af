@@ -382,6 +382,13 @@
             </span>
           </label>
 
+          <label class="flex items-center gap-3 comic text-cyan-200 mb-4 cursor-pointer select-none neon-card rounded-2xl p-3">
+            <input id="f-require-tested" type="checkbox" class="w-5 h-5 accent-emerald-400">
+            <span>🧪 Allow only people who tested all the apps in this round to vote
+              <span class="text-zinc-400 text-sm">(off by default — voters must have used every app in the round)</span>
+            </span>
+          </label>
+
           <div class="flex items-center justify-between mb-2">
             <label class="comic text-cyan-200 text-lg">📦 Pick candidate apps (min 2)</label>
             <button id="reload-apps" class="chunky-btn bouncy bg-cyan-300 text-black px-3 py-1.5 rounded-xl">🔄 reload</button>
@@ -457,6 +464,7 @@
           votes_per_voter: parseInt(vpv.value, 10) || 1,
           invitees: $('#f-invitees', root).value,
           allow_self_vote: $('#f-self-vote', root).checked,
+          require_tested_all: $('#f-require-tested', root).checked,
           candidate_app_ids: [...selected],
         };
         try {
@@ -494,6 +502,7 @@
               <h2 class="funky text-2xl text-white">${pick(EMOJI)} ${esc(r.title)}</h2>
               <div class="comic text-cyan-200 mt-1">${audLabel(r.audience)} · 🗳️ ${allowance} vote(s) each · by @${esc(r.creator_username)}</div>
               <div class="comic text-sm mt-1 ${r.allow_self_vote ? 'text-emerald-300' : 'text-pink-300'}">${r.allow_self_vote ? '🙋 self-voting allowed' : '🚫 no self-voting — contributors can\'t vote for their own app'}</div>
+              ${r.require_tested_all ? `<div class="comic text-sm mt-1 text-emerald-300">🧪 testers only — you must try every app in this round to vote</div>` : ''}
             </div>
             ${statusBadge(r.status)}
           </div>
@@ -532,6 +541,34 @@
       // modals are suppressed in the platform's embedded iframe, so a
       // window.confirm() gate silently returns false and the delete never fires.
       if (ME && ME.is_admin) {
+        // Admin-only: flip the testers-only restriction on this round live.
+        const tWrap = document.createElement('div');
+        tWrap.className = 'basis-full mt-1 pt-3 border-t-2 border-emerald-400/40';
+        cc.appendChild(tWrap);
+        const renderTesters = () => {
+          const on = !!r.require_tested_all;
+          tWrap.innerHTML = `
+            <button id="tg-r" class="chunky-btn ${on ? 'bg-emerald-400 text-black' : 'bg-zinc-700 text-white'} px-4 py-2 rounded-xl">
+              🧪 Testers-only voting: ${on ? 'On' : 'Off'}
+            </button>
+            <span class="comic text-emerald-200 text-sm self-center ml-2">admin · ${on ? 'click to allow everyone' : 'click to require testing all apps'}</span>`;
+          const btn = $('#tg-r', tWrap);
+          btn.onclick = async () => {
+            if (btn.disabled) return;
+            btn.disabled = true;
+            try {
+              const out = await api('/api/rounds/' + encodeURIComponent(slug) + '/require-tested',
+                { method: 'POST', body: JSON.stringify({ enabled: !on }) });
+              toast(out.round.require_tested_all ? 'Testers-only voting ON' : 'Testers-only voting OFF');
+              renderDetail(root, slug);
+            } catch (e) {
+              toast(e.message, false);
+              btn.disabled = false;
+            }
+          };
+        };
+        renderTesters();
+
         const wrap = document.createElement('div');
         wrap.className = 'basis-full mt-1 pt-3 border-t-2 border-pink-500/40';
         cc.appendChild(wrap);
@@ -647,6 +684,32 @@
             toast(e.message, false);
           }
         };
+
+        // Testers-only gate: if this round restricts voting and the viewer
+        // isn't eligible (or eligibility couldn't be verified), show the
+        // disclaimer above the ballot and disable submit. Server-side is the
+        // authoritative gate; this is the up-front UX.
+        // Block only when we positively know the viewer isn't eligible, or the
+        // check couldn't run (unverifiable). eligible:null with no unverifiable
+        // flag means it wasn't checked (e.g. the creator) — don't block then.
+        const elig = d.eligibility;
+        if (elig && elig.requireTestedAll && (elig.eligible === false || elig.unverifiable)) {
+          const submitBtn = $('#submit', body);
+          if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.classList.add('opacity-50', 'pointer-events-none');
+          }
+          const banner = document.createElement('div');
+          banner.className = 'neon-card rounded-2xl p-4 mb-4 comic text-center text-pink-200';
+          if (elig.unverifiable) {
+            banner.innerHTML = `⚠️ We couldn't verify which apps you've tested right now — please try again in a moment.`;
+          } else {
+            const missing = (elig.missingNames || []);
+            banner.innerHTML = `🧪 In order to vote on your favorite app, you have to test all the apps part of the voting round.
+              ${missing.length ? `<div class="text-yellow-300 mt-2 text-sm">Still to try: ${missing.map(esc).join(', ')}</div>` : ''}`;
+          }
+          body.insertBefore(banner, body.firstChild);
+        }
       } else if (r.status === 'draft') {
         body.innerHTML = `<div class="neon-card rounded-3xl p-8 text-center comic text-xl text-yellow-300">
           📝 This round is still a draft. Voting hasn't opened yet — check back soon! 🍿

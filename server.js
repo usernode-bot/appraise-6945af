@@ -116,6 +116,92 @@ function appUrlFromSlug(slug) {
   return slug ? `https://social-vibecoding.usernodelabs.org/#app/${slug}` : null;
 }
 
+// Platform-wide per-user leaderboard. `active_apps[].slug` are the apps each
+// user has tested/used; `address` (ut1…) lines up with req.user.usernode_pubkey
+// and `user_id` with req.user.id. Used to gate voting on require_tested_all
+// rounds.
+const LEADERBOARD_URL =
+  'https://social-vibecoding.usernodelabs.org/api/leaderboard/users?include_0_values=0&fields=active_apps,address,user_id';
+
+// Obviously-fake leaderboard used ONLY in staging when the live API can't be
+// reached (staging has no guaranteed outbound). Never used in production. The
+// seeded staging tester deliberately does NOT appear here, so a restricted
+// round blocks them and the disclaimer renders without any live API. The
+// ?demo=1 pass path (see checkTestedAll) is how a tester exercises the
+// eligible branch.
+const STAGING_FALLBACK_LEADERBOARD = [
+  { username: 'staging-demo-voter-1', user_id: 910001, address: 'ut1stagingdemovoter1',
+    active_apps: [{ name: 'Staging demo App Alpha', slug: 'staging-demo-alpha' }] },
+  { username: 'staging-demo-voter-2', user_id: 910002, address: 'ut1stagingdemovoter2',
+    active_apps: [
+      { name: 'Staging demo App Alpha', slug: 'staging-demo-alpha' },
+      { name: 'Staging demo App Bravo', slug: 'staging-demo-bravo' },
+    ] },
+];
+
+// Fetch the platform leaderboard. Throws on timeout / non-2xx / network error
+// so callers can surface "couldn't verify"; in staging callers may fall back
+// to STAGING_FALLBACK_LEADERBOARD.
+async function fetchLeaderboard() {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5000);
+  try {
+    const res = await fetch(LEADERBOARD_URL, { signal: controller.signal });
+    if (!res.ok) throw new Error(`leaderboard responded ${res.status}`);
+    const data = await res.json();
+    return Array.isArray(data && data.items) ? data.items : [];
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Eligibility check for require_tested_all rounds. `requiredSlugs` is the set
+// of (normalized) app slugs in the round's scope. Returns a structured result;
+// never throws. Defaults to BLOCKING (eligible:false) on every failure mode
+// rather than silently allowing.
+//   { eligible, missing: [slug], unverifiable }
+// `opts.demo` (staging only) injects the current user as having tested the
+// full scope so the eligible branch is exercisable in a preview.
+async function checkTestedAll(user, requiredSlugs, opts = {}) {
+  const required = [...new Set((requiredSlugs || []).map(norm).filter(Boolean))];
+  // Nothing to verify (no slugged candidates) → allow.
+  if (required.length === 0) return { eligible: true, missing: [], unverifiable: false };
+
+  // Staging demo pass path: treat the current user as fully tested.
+  if (IS_STAGING && opts.demo) {
+    return { eligible: true, missing: [], unverifiable: false };
+  }
+
+  let items;
+  try {
+    items = await fetchLeaderboard();
+  } catch (err) {
+    if (IS_STAGING) {
+      items = STAGING_FALLBACK_LEADERBOARD;
+    } else {
+      return { eligible: false, missing: required, unverifiable: true };
+    }
+  }
+
+  const myAddr = norm(user && user.usernode_pubkey);
+  const myId = user && user.id;
+  const me = items.find((it) => {
+    if (myAddr && norm(it && it.address) === myAddr) return true;
+    if (myId != null && it && it.user_id === myId) return true;
+    return false;
+  });
+  // Not found → no recorded tested apps → block (disclaimer applies).
+  if (!me) return { eligible: false, missing: required, unverifiable: false };
+
+  const tested = new Set(
+    (Array.isArray(me.active_apps) ? me.active_apps : [])
+      .map((a) => norm(a && a.slug))
+      .filter(Boolean)
+  );
+  const missing = required.filter((s) => !tested.has(s));
+  return { eligible: missing.length === 0, missing, unverifiable: false };
+}
+
 function slugify(title) {
   const base = String(title || 'round')
     .toLowerCase()
@@ -205,6 +291,7 @@ function publicRound(round, extra = {}) {
     max_votes_per_app: round.max_votes_per_app,
     status: round.status,
     allow_self_vote: !!round.allow_self_vote,
+    require_tested_all: !!round.require_tested_all,
     creator_username: round.creator_username,
     created_at: round.created_at,
     ...extra,
@@ -348,6 +435,7 @@ app.post('/api/rounds', async (req, res) => {
     const description = String(body.description || '').trim();
     const audience = body.audience === 'invite' ? 'invite' : 'everyone';
     const allowSelfVote = body.allow_self_vote === true || body.allow_self_vote === 'true';
+    const requireTestedAll = body.require_tested_all === true || body.require_tested_all === 'true';
     let votesPerVoter = parseInt(body.votes_per_voter, 10);
     if (!Number.isFinite(votesPerVoter) || votesPerVoter < 1) votesPerVoter = 1;
     if (votesPerVoter > 100) votesPerVoter = 100;
@@ -458,11 +546,11 @@ app.post('/api/rounds', async (req, res) => {
     const roundIns = await client.query(
       `INSERT INTO rounds
          (slug, title, description, creator_user_id, creator_username,
-          audience, votes_per_voter, max_votes_per_app, status, allow_self_vote)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'draft',$9)
+          audience, votes_per_voter, max_votes_per_app, status, allow_self_vote, require_tested_all)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'draft',$9,$10)
        RETURNING *`,
       [slug, title.slice(0, 140), description.slice(0, 2000), u.id, u.username,
-       audience, votesPerVoter, maxPerApp, allowSelfVote]
+       audience, votesPerVoter, maxPerApp, allowSelfVote, requireTestedAll]
     );
     const round = roundIns.rows[0];
 
@@ -537,6 +625,30 @@ app.get('/api/rounds/:slug', async (req, res) => {
 
     const canVote = round.status === 'open';
 
+    // Eligibility hint for require_tested_all rounds — best-effort UX so the
+    // detail view can show the disclaimer + disable submit up front. The
+    // authoritative gate is the vote endpoint; failing open here is harmless.
+    let eligibility = null;
+    if (round.require_tested_all) {
+      eligibility = { requireTestedAll: true, eligible: null, missingNames: [], unverifiable: false };
+      // Only worth checking when the viewer could actually vote.
+      if (round.status === 'open' && !isCreator) {
+        const requiredSlugs = candidates.map((c) => c.app_slug).filter(Boolean);
+        const demo = IS_STAGING && req.query.demo === '1';
+        const r = await checkTestedAll(u, requiredSlugs, { demo });
+        const missingSet = new Set(r.missing.map(norm));
+        const missingNames = candidates
+          .filter((c) => c.app_slug && missingSet.has(norm(c.app_slug)))
+          .map((c) => c.app_name);
+        eligibility = {
+          requireTestedAll: true,
+          eligible: r.unverifiable ? null : r.eligible,
+          missingNames,
+          unverifiable: r.unverifiable,
+        };
+      }
+    }
+
     // Results visible to: creator anytime, a voter once they've voted,
     // everyone once the round is closed.
     let results = null;
@@ -557,6 +669,7 @@ app.get('/api/rounds/:slug', async (req, res) => {
       hasVoted,
       candidates: cands,
       results,
+      eligibility,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -586,6 +699,28 @@ async function transition(req, res, to, from) {
 
 app.post('/api/rounds/:slug/open', (req, res) => transition(req, res, 'open', 'draft'));
 app.post('/api/rounds/:slug/close', (req, res) => transition(req, res, 'closed', 'open'));
+
+// Admin-only live toggle for the "testers only" restriction. Unlike open/close
+// (creator-gated) this is gated on isAdmin so an admin can flip it on any round
+// at any time. Admin check runs before the existence lookup so non-admins can't
+// probe which slugs exist.
+app.post('/api/rounds/:slug/require-tested', async (req, res) => {
+  try {
+    if (!isAdmin(req.user)) {
+      return res.status(403).json({ error: 'Admins only.' });
+    }
+    const enabled = req.body && (req.body.enabled === true || req.body.enabled === 'true');
+    const round = await getRoundBySlug(req.params.slug);
+    if (!round) return res.status(404).json({ error: 'Round not found.' });
+    const { rows } = await pool.query(
+      `UPDATE rounds SET require_tested_all = $1 WHERE id = $2 RETURNING *`,
+      [enabled, round.id]
+    );
+    res.json({ round: publicRound(rows[0], { mine: rows[0].creator_user_id === req.user.id }) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // Permanently delete a round (admin only). The admin check runs BEFORE any
 // existence lookup so non-admins can't probe which slugs exist. Child rows
@@ -620,6 +755,25 @@ app.post('/api/rounds/:slug/vote', async (req, res) => {
     }
 
     const candidates = await loadCandidates(round.id);
+
+    // Testers-only gate: must have tested every app in scope. Hard enforcement
+    // — blocks rather than silently allowing on any failure mode.
+    if (round.require_tested_all) {
+      const requiredSlugs = candidates.map((c) => c.app_slug).filter(Boolean);
+      const demo = IS_STAGING && req.query.demo === '1';
+      const elig = await checkTestedAll(u, requiredSlugs, { demo });
+      if (!elig.eligible) {
+        if (elig.unverifiable) {
+          return res.status(400).json({
+            error: "We couldn't verify which apps you've tested right now — please try again in a moment.",
+          });
+        }
+        return res.status(400).json({
+          error: 'In order to vote on your favorite app, you have to test all the apps part of the voting round.',
+        });
+      }
+    }
+
     const byId = new Map(candidates.map((c) => [c.id, c]));
     // Contributor membership only matters when self-voting is forbidden.
     const contribByCand = round.allow_self_vote
@@ -761,6 +915,10 @@ async function migrate() {
   // Per-round toggle: when false (default) contributors can't vote for their
   // own app; when true there are no self-vote restrictions.
   await pool.query(`ALTER TABLE rounds ADD COLUMN IF NOT EXISTS allow_self_vote BOOLEAN NOT NULL DEFAULT false`);
+  // Per-round toggle (admin-activatable): when true, only voters who have
+  // tested ("used") every app in the round may cast a ballot. Eligibility is
+  // checked live against the platform leaderboard. Off by default.
+  await pool.query(`ALTER TABLE rounds ADD COLUMN IF NOT EXISTS require_tested_all BOOLEAN NOT NULL DEFAULT false`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS round_candidates (
@@ -822,13 +980,13 @@ async function seedRound(spec) {
   const r = await pool.query(
     `INSERT INTO rounds
        (slug, title, description, creator_user_id, creator_username,
-        audience, votes_per_voter, max_votes_per_app, status, allow_self_vote)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+        audience, votes_per_voter, max_votes_per_app, status, allow_self_vote, require_tested_all)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
      ON CONFLICT (slug) DO NOTHING
      RETURNING id`,
     [spec.slug, spec.title, spec.description, spec.creator_user_id, spec.creator_username,
      spec.audience, spec.votes_per_voter, spec.max_votes_per_app, spec.status,
-     spec.allow_self_vote === true]
+     spec.allow_self_vote === true, spec.require_tested_all === true]
   );
   if (r.rows.length === 0) return; // already seeded — stay idempotent
   const roundId = r.rows[0].id;
@@ -1052,6 +1210,35 @@ async function seedStaging() {
       { voter: 'staging-demo-voter-1', voter_id: 910001, picks: [0] },          // 1 cast → 2 remaining
       { voter: 'staging-demo-voter-2', voter_id: 910002, picks: [0, 1] },       // 2 cast → 1 remaining
       { voter: 'staging-demo-voter-3', voter_id: 910003, picks: [0, 1, 2] },    // 3 cast → 0 remaining
+    ],
+  });
+
+  // 8) Open "everyone" round with the testers-only restriction ON. The seeded
+  //    tester is not in STAGING_FALLBACK_LEADERBOARD, so by default they're
+  //    blocked and the disclaimer renders. Append ?demo=1 to the round URL to
+  //    exercise the eligible (submit-enabled) path. Candidate slugs reuse the
+  //    existing fake directory slugs so eligibility matching is meaningful.
+  await seedRound({
+    slug: 'staging-tested-gate',
+    title: 'Staging demo — Testers Only Gate 🧪',
+    description: 'Restricted: you must have tested every app to vote. Blocked by default; add ?demo=1 to the URL to qualify. 🔬',
+    creator_user_id: 900001,
+    creator_username: 'staging-demo-host',
+    audience: 'everyone',
+    votes_per_voter: 2,
+    max_votes_per_app: 1,
+    status: 'open',
+    require_tested_all: true,
+    candidates: [
+      { app_name: 'Staging demo App Alpha', app_url: appUrlFromSlug('staging-demo-alpha'),
+        external_app_id: 990001, app_slug: 'staging-demo-alpha', owner_username: 'staging-demo-maker-1',
+        contributors: [{ user_id: 900101, username: 'staging-demo-maker-1' }] },
+      { app_name: 'Staging demo App Bravo', app_url: appUrlFromSlug('staging-demo-bravo'),
+        external_app_id: 990002, app_slug: 'staging-demo-bravo', owner_username: 'staging-demo-maker-2',
+        contributors: [{ user_id: 900102, username: 'staging-demo-maker-2' }] },
+      { app_name: 'Staging demo App Charlie', app_url: appUrlFromSlug('staging-demo-charlie'),
+        external_app_id: 990003, app_slug: 'staging-demo-charlie', owner_username: 'staging-demo-maker-3',
+        contributors: [{ user_id: 900103, username: 'staging-demo-maker-3' }] },
     ],
   });
 }
