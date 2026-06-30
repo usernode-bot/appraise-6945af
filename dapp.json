@@ -50,6 +50,16 @@
       "expectSelector": ".del-row"
     },
     {
+      "name": "Testers-only toggle present",
+      "path": "/create",
+      "expectText": "tested all the apps"
+    },
+    {
+      "name": "Restricted round shows disclaimer",
+      "path": "/round/staging-tested-gate",
+      "expectText": "you have to test all the apps part of the voting round"
+    },
+    {
       "name": "Public voter leaderboard API",
       "path": "/api/leaderboard?round=staging-voting-progress",
       "expectText": "votes_remaining"
