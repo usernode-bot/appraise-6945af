@@ -671,6 +671,16 @@
         note.textContent = '🙈 Results are hidden until you cast your ballot — vote first!';
         body.appendChild(note);
       }
+
+      // ---- slug footnote ----
+      // Deliberately subtle: a faint, selectable monospace string at the very
+      // bottom of the page (after voting + results). No label or button —
+      // only noticeable to someone who knows to look for it, but enough to
+      // copy a round's slug by hand (e.g. for the public leaderboard).
+      const slugLine = document.createElement('div');
+      slugLine.className = 'mt-8 text-center font-mono text-xs text-zinc-600';
+      slugLine.textContent = r.slug;
+      root.appendChild(slugLine);
     }
 
     // =========================================================================
