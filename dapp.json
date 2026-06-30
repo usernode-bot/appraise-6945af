@@ -48,6 +48,10 @@
       "name": "List shows admin delete buttons",
       "path": "/",
       "expectSelector": ".del-row"
+    },
+    {
+      "name": "Favicon resolves without auth",
+      "path": "/favicon.ico"
     }
   ],
   "visibility": {
