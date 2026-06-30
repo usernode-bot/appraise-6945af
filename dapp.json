@@ -60,6 +60,11 @@
       "expectText": "you have to test all the apps part of the voting round"
     },
     {
+      "name": "Restricted round shows per-app untested notice",
+      "path": "/round/staging-tested-gate",
+      "expectText": "You haven't tested this app yet"
+    },
+    {
       "name": "Public voter leaderboard API",
       "path": "/api/leaderboard?round=staging-voting-progress",
       "expectText": "votes_remaining"
