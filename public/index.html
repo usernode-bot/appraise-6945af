@@ -613,6 +613,130 @@
         };
         renderRule();
 
+        // Admin-only: full edit form for the round's core details. Mirrors the
+        // create form (minus the candidate picker); slug / status / candidates
+        // are not editable. Non-retroactive — never rewrites cast ballots.
+        const eWrap = document.createElement('div');
+        eWrap.className = 'basis-full mt-1 pt-3 border-t-2 border-cyan-400/40';
+        cc.appendChild(eWrap);
+
+        const voteCount = (d.results && typeof d.results.voterCount === 'number') ? d.results.voterCount : 0;
+
+        const renderEditIdle = () => {
+          eWrap.innerHTML = `<button id="edit-r" class="chunky-btn bg-cyan-400 text-black px-4 py-2 rounded-xl">✏️ Edit round details</button>
+            <span class="comic text-cyan-200 text-sm self-center ml-2">admin · title, description, audience & voting rules</span>`;
+          $('#edit-r', eWrap).onclick = renderEditForm;
+        };
+
+        const renderEditForm = () => {
+          eWrap.innerHTML = `
+            <div class="neon-card rounded-2xl p-4 space-y-3">
+              <div class="funky text-lg text-cyan-200">✏️ Edit round details</div>
+              ${voteCount > 0 ? `<div class="comic text-sm text-yellow-300">⚠️ ${voteCount} ballot(s) already cast — changes apply from now on and won't alter existing votes.</div>` : ''}
+              <div>
+                <label class="comic text-cyan-200">Title</label>
+                <input id="e-title" class="w-full bg-black/40 border-2 border-cyan-400/60 rounded-xl px-3 py-2 mt-1" value="${esc(r.title)}">
+              </div>
+              <div>
+                <label class="comic text-cyan-200">Description</label>
+                <textarea id="e-desc" rows="2" class="w-full bg-black/40 border-2 border-cyan-400/60 rounded-xl px-3 py-2 mt-1">${esc(r.description || '')}</textarea>
+              </div>
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label class="comic text-cyan-200">Audience</label>
+                  <select id="e-aud" class="w-full bg-black/40 border-2 border-emerald-400/60 rounded-xl px-3 py-2 mt-1">
+                    <option value="everyone">🌍 Everyone</option>
+                    <option value="invite">🤫 Invited only</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="comic text-cyan-200">Votes per voter</label>
+                  <input id="e-vpv" type="number" min="1" max="100" class="w-full bg-black/40 border-2 border-yellow-400/60 rounded-xl px-3 py-2 mt-1" value="${r.votes_per_voter}">
+                </div>
+              </div>
+              <div id="e-invite-wrap">
+                <label class="comic text-cyan-200">Invited usernames (comma / space separated)</label>
+                <textarea id="e-invitees" rows="2" class="w-full bg-black/40 border-2 border-purple-400/60 rounded-xl px-3 py-2 mt-1" placeholder="alice, bob, carol">${esc((d.invitees || []).join(', '))}</textarea>
+              </div>
+              <div>
+                <label class="comic text-cyan-200">Vote distribution</label>
+                <select id="e-rule" class="w-full bg-black/40 border-2 border-orange-400/60 rounded-xl px-3 py-2 mt-1">
+                  <option value="one_per_app">🎯 One vote per app (spread them out)</option>
+                  <option value="concentrate">🧮 Concentrate (all votes can go on one app)</option>
+                </select>
+              </div>
+              <div id="e-spread-note" class="comic text-sm text-emerald-300"></div>
+              <label class="flex items-center gap-3 comic text-cyan-200 cursor-pointer select-none neon-card rounded-2xl p-3">
+                <input id="e-self-vote" type="checkbox" class="w-5 h-5 accent-pink-500">
+                <span>🙋 Allow people to vote on their own app</span>
+              </label>
+              <label class="flex items-center gap-3 comic text-cyan-200 cursor-pointer select-none neon-card rounded-2xl p-3">
+                <input id="e-require-tested" type="checkbox" class="w-5 h-5 accent-emerald-400">
+                <span>🧪 Allow only people who tested all the apps in this round to vote</span>
+              </label>
+              <div class="flex gap-2 flex-wrap">
+                <button id="e-save" class="chunky-btn bg-cyan-400 text-black px-4 py-2 rounded-xl">💾 Save changes</button>
+                <button id="e-cancel" class="chunky-btn bg-zinc-700 text-white px-4 py-2 rounded-xl">Cancel</button>
+              </div>
+              <div id="e-err" class="comic text-pink-300"></div>
+            </div>`;
+
+          const audSel = $('#e-aud', eWrap);
+          audSel.value = r.audience === 'invite' ? 'invite' : 'everyone';
+          const ruleSel = $('#e-rule', eWrap);
+          ruleSel.value = r.vote_rule === 'concentrate' ? 'concentrate' : 'one_per_app';
+          $('#e-self-vote', eWrap).checked = !!r.allow_self_vote;
+          $('#e-require-tested', eWrap).checked = !!r.require_tested_all;
+
+          const inviteWrap = $('#e-invite-wrap', eWrap);
+          const syncInvite = () => inviteWrap.classList.toggle('hidden', audSel.value !== 'invite');
+          audSel.onchange = syncInvite; syncInvite();
+
+          const vpv = $('#e-vpv', eWrap);
+          const note = $('#e-spread-note', eWrap);
+          const updateSpread = () => {
+            const n = Math.max(1, parseInt(vpv.value, 10) || 1);
+            if (n <= 1) note.textContent = '🗳️ 1 vote each — both distribution rules behave the same with a single vote.';
+            else if (ruleSel.value === 'concentrate') note.textContent = `🧮 Concentrate: a voter may put all ${n} of their votes on one app.`;
+            else note.textContent = `🎯 One vote per app: each app can get at most 1 of a voter's ${n} votes — they must spread out.`;
+          };
+          vpv.oninput = updateSpread; ruleSel.onchange = updateSpread; updateSpread();
+
+          $('#e-cancel', eWrap).onclick = renderEditIdle;
+          const saveBtn = $('#e-save', eWrap);
+          saveBtn.onclick = async () => {
+            if (saveBtn.disabled) return;
+            const title = $('#e-title', eWrap).value.trim();
+            if (!title) { $('#e-err', eWrap).textContent = '💢 A title is required.'; shake(saveBtn); return; }
+            saveBtn.disabled = true;
+            saveBtn.textContent = '💾 Saving…';
+            const payload = {
+              title,
+              description: $('#e-desc', eWrap).value.trim(),
+              audience: audSel.value,
+              votes_per_voter: parseInt(vpv.value, 10) || 1,
+              vote_rule: ruleSel.value,
+              invitees: $('#e-invitees', eWrap).value,
+              allow_self_vote: $('#e-self-vote', eWrap).checked,
+              require_tested_all: $('#e-require-tested', eWrap).checked,
+            };
+            try {
+              const out = await api('/api/rounds/' + encodeURIComponent(slug),
+                { method: 'PATCH', body: JSON.stringify(payload) });
+              toast('Round updated ✨');
+              if (out.warning) toast(out.warning, false);
+              renderDetail(root, slug);
+            } catch (e) {
+              $('#e-err', eWrap).textContent = '💢 ' + e.message;
+              toast(e.message, false);
+              saveBtn.disabled = false;
+              saveBtn.textContent = '💾 Save changes';
+            }
+          };
+        };
+
+        renderEditIdle();
+
         const wrap = document.createElement('div');
         wrap.className = 'basis-full mt-1 pt-3 border-t-2 border-pink-500/40';
         cc.appendChild(wrap);
