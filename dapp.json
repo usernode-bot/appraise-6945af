@@ -45,6 +45,11 @@
       "expectText": "Delete round"
     },
     {
+      "name": "Admin edit affordance",
+      "path": "/round/staging-fav-dev-tools",
+      "expectText": "Edit round details"
+    },
+    {
       "name": "List shows admin delete buttons",
       "path": "/",
       "expectSelector": ".del-row"

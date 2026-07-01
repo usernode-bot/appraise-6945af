@@ -750,6 +750,18 @@ app.get('/api/rounds/:slug', async (req, res) => {
       };
     }
 
+    // Invitee roster for the admin/creator edit form. round_invitees is
+    // staging:private — only expose it to the creator or an admin, and never
+    // via publicRound (which feeds list views / public payloads).
+    let invitees = null;
+    if (isCreator || isAdmin(u)) {
+      const inv = await pool.query(
+        `SELECT username FROM round_invitees WHERE round_id = $1 ORDER BY username ASC`,
+        [round.id]
+      );
+      invitees = inv.rows.map((row) => row.username);
+    }
+
     res.json({
       round: publicRound(round, { mine: isCreator }),
       isCreator,
@@ -758,6 +770,7 @@ app.get('/api/rounds/:slug', async (req, res) => {
       candidates: cands,
       results,
       eligibility,
+      invitees,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -830,6 +843,107 @@ app.post('/api/rounds/:slug/vote-rule', async (req, res) => {
     res.json({ round: publicRound(rows[0], { mine: rows[0].creator_user_id === req.user.id }) });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Admin-only comprehensive edit of a round's core details. Same gate shape as
+// the other admin mutations: 403 BEFORE the existence lookup so non-admins
+// can't probe which slugs exist. Edits are non-retroactive — already-cast
+// ballots are never rewritten. slug / status / creator_* / created_at are
+// intentionally immutable (slug is the round's shared-link + public-leaderboard
+// identity; open/close remain the creator's transitions). Reuses the create
+// handler's validation/normalization for parity.
+app.patch('/api/rounds/:slug', async (req, res) => {
+  if (!isAdmin(req.user)) {
+    return res.status(403).json({ error: 'Admins only.' });
+  }
+  const client = await pool.connect();
+  try {
+    const round = await getRoundBySlug(req.params.slug);
+    if (!round) return res.status(404).json({ error: 'Round not found.' });
+
+    const body = req.body || {};
+    const title = String(body.title || '').trim();
+    if (!title) return res.status(400).json({ error: 'A title is required.' });
+    const description = String(body.description || '').trim();
+    const audience = body.audience === 'invite' ? 'invite' : 'everyone';
+    const allowSelfVote = body.allow_self_vote === true || body.allow_self_vote === 'true';
+    const requireTestedAll = body.require_tested_all === true || body.require_tested_all === 'true';
+    let votesPerVoter = parseInt(body.votes_per_voter, 10);
+    if (!Number.isFinite(votesPerVoter) || votesPerVoter < 1) votesPerVoter = 1;
+    if (votesPerVoter > 100) votesPerVoter = 100;
+    // Keep the numeric per-app cap in sync with the rule + allowance, exactly
+    // as create and the vote-rule endpoint do.
+    const voteRule = normalizeVoteRule(body.vote_rule);
+    const maxPerApp = capForRule(voteRule, votesPerVoter);
+
+    // Invitees (only meaningful for invite audience). Parsed exactly like create.
+    const invitees = [];
+    if (audience === 'invite') {
+      const list = Array.isArray(body.invitees)
+        ? body.invitees
+        : String(body.invitees || '').split(/[\s,]+/);
+      const seenU = new Set();
+      for (const raw of list) {
+        const name = String(raw || '').trim();
+        if (!name) continue;
+        const key = name.toLowerCase();
+        if (seenU.has(key)) continue;
+        seenU.add(key);
+        invitees.push(name.slice(0, 80));
+      }
+    }
+
+    await client.query('BEGIN');
+    const upd = await client.query(
+      `UPDATE rounds
+          SET title = $1, description = $2, audience = $3, votes_per_voter = $4,
+              max_votes_per_app = $5, allow_self_vote = $6, require_tested_all = $7,
+              vote_rule = $8
+        WHERE id = $9
+        RETURNING *`,
+      [title.slice(0, 140), description.slice(0, 2000), audience, votesPerVoter,
+       maxPerApp, allowSelfVote, requireTestedAll, voteRule, round.id]
+    );
+    // Replace the invitee roster wholesale. Deleting on 'everyone' keeps the
+    // table tidy (canViewRound short-circuits on 'everyone' anyway).
+    await client.query(`DELETE FROM round_invitees WHERE round_id = $1`, [round.id]);
+    for (const name of invitees) {
+      await client.query(
+        `INSERT INTO round_invitees (round_id, username) VALUES ($1,$2)
+         ON CONFLICT (round_id, username) DO NOTHING`,
+        [round.id, name]
+      );
+    }
+    await client.query('COMMIT');
+
+    const updated = upd.rows[0];
+
+    // Same testers-only "can't be enforced" heads-up as create: surface (don't
+    // block) when the restriction is on but candidates carry no slug.
+    let warning = null;
+    if (requireTestedAll) {
+      const cands = await loadCandidates(round.id);
+      const unenforceable = cands.filter((c) => !c.app_slug).map((c) => c.app_name);
+      const enforceable = cands.length - unenforceable.length;
+      if (enforceable === 0) {
+        warning =
+          "Heads up: none of the selected apps could be matched to the platform's tested-apps list, so the testers-only restriction can't be enforced for this round — anyone can vote.";
+      } else if (unenforceable.length) {
+        warning =
+          `Heads up: the testers-only restriction can't be enforced for ${unenforceable.join(', ')} (not matched to the platform's tested-apps list). The other ${enforceable} app(s) are still gated.`;
+      }
+    }
+
+    res.json({
+      round: publicRound(updated, { mine: updated.creator_user_id === req.user.id }),
+      ...(warning ? { warning } : {}),
+    });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
   }
 });
 
