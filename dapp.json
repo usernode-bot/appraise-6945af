@@ -65,6 +65,16 @@
       "expectText": "You haven't tested this app yet"
     },
     {
+      "name": "Name-fallback round renders eligible ballot with demo pass",
+      "path": "/round/staging-name-fallback?demo=1",
+      "expectSelector": ".inc"
+    },
+    {
+      "name": "Unenforceable round surfaces can't-enforce note",
+      "path": "/round/staging-unenforceable-gate",
+      "expectText": "can't be enforced for"
+    },
+    {
       "name": "Public voter leaderboard API",
       "path": "/api/leaderboard?round=staging-voting-progress",
       "expectText": "votes_remaining"

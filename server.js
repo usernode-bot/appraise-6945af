@@ -149,22 +149,41 @@ async function fetchLeaderboard() {
     const res = await fetch(LEADERBOARD_URL, { signal: controller.signal });
     if (!res.ok) throw new Error(`leaderboard responded ${res.status}`);
     const data = await res.json();
-    return Array.isArray(data && data.items) ? data.items : [];
+    // Be tolerant of the feed's exact envelope. A healthy response keyed
+    // differently than we expect must not collapse to [] (which would make
+    // every voter look "unverifiable / blocked"). Accept the common shapes.
+    if (Array.isArray(data)) return data;
+    if (data && Array.isArray(data.items)) return data.items;
+    if (data && Array.isArray(data.users)) return data.users;
+    if (data && Array.isArray(data.leaderboard)) return data.leaderboard;
+    return [];
   } finally {
     clearTimeout(timer);
   }
 }
 
-// Eligibility check for require_tested_all rounds. `requiredSlugs` is the set
-// of (normalized) app slugs in the round's scope. Returns a structured result;
-// never throws. Defaults to BLOCKING (eligible:false) on every failure mode
-// rather than silently allowing.
+// Eligibility check for require_tested_all rounds. `requiredCands` is the set
+// of ENFORCEABLE candidates (those carrying an app_slug) as `{ slug, name }`
+// pairs. Returns a structured result; never throws. Defaults to BLOCKING
+// (eligible:false) on every failure mode rather than silently allowing.
 //   { eligible, missing: [slug], unverifiable }
+// `missing` is keyed by slug so callers can map it back to candidates.
+// A candidate counts as tested when its slug matches a leaderboard
+// active_apps[].slug OR (fallback) its name matches active_apps[].name — the
+// two platform feeds don't always agree on slug, so name is a safety net.
 // `opts.demo` (staging only) injects the current user as having tested the
 // full scope so the eligible branch is exercisable in a preview.
-async function checkTestedAll(user, requiredSlugs, opts = {}) {
-  const required = [...new Set((requiredSlugs || []).map(norm).filter(Boolean))];
-  // Nothing to verify (no slugged candidates) → allow.
+async function checkTestedAll(user, requiredCands, opts = {}) {
+  // De-dupe by slug; keep the first name we see for each slug.
+  const bySlug = new Map();
+  for (const c of (requiredCands || [])) {
+    const slug = norm(c && c.slug);
+    if (!slug || bySlug.has(slug)) continue;
+    bySlug.set(slug, norm(c && c.name));
+  }
+  const required = [...bySlug.entries()].map(([slug, name]) => ({ slug, name }));
+  // Nothing enforceable (no slugged candidates) → allow. The caller surfaces
+  // the "can't be enforced" note separately.
   if (required.length === 0) return { eligible: true, missing: [], unverifiable: false };
 
   // Staging demo pass path: treat the current user as fully tested.
@@ -179,7 +198,7 @@ async function checkTestedAll(user, requiredSlugs, opts = {}) {
     if (IS_STAGING) {
       items = STAGING_FALLBACK_LEADERBOARD;
     } else {
-      return { eligible: false, missing: required, unverifiable: true };
+      return { eligible: false, missing: required.map((c) => c.slug), unverifiable: true };
     }
   }
 
@@ -191,14 +210,21 @@ async function checkTestedAll(user, requiredSlugs, opts = {}) {
     return false;
   });
   // Not found → no recorded tested apps → block (disclaimer applies).
-  if (!me) return { eligible: false, missing: required, unverifiable: false };
+  if (!me) {
+    // Diagnostic: makes a production slug/id-namespace mismatch debuggable
+    // without a redeploy. Only fires on testers-only rounds (the only caller).
+    console.warn(
+      `[testers-gate] viewer not found in leaderboard (id=${myId}, addr=${myAddr || 'none'}, feed_size=${items.length})`
+    );
+    return { eligible: false, missing: required.map((c) => c.slug), unverifiable: false };
+  }
 
-  const tested = new Set(
-    (Array.isArray(me.active_apps) ? me.active_apps : [])
-      .map((a) => norm(a && a.slug))
-      .filter(Boolean)
-  );
-  const missing = required.filter((s) => !tested.has(s));
+  const apps = Array.isArray(me.active_apps) ? me.active_apps : [];
+  const testedSlugs = new Set(apps.map((a) => norm(a && a.slug)).filter(Boolean));
+  const testedNames = new Set(apps.map((a) => norm(a && a.name)).filter(Boolean));
+  const missing = required
+    .filter((c) => !(testedSlugs.has(c.slug) || (c.name && testedNames.has(c.name))))
+    .map((c) => c.slug);
   return { eligible: missing.length === 0, missing, unverifiable: false };
 }
 
@@ -583,7 +609,24 @@ app.post('/api/rounds', async (req, res) => {
       );
     }
     await client.query('COMMIT');
-    res.json({ round: publicRound(round, { mine: true }) });
+
+    // Fix C: when testers-only is on, surface (don't block) candidates that
+    // can't be gate-matched because they carry no slug — otherwise the round
+    // silently behaves as ungated for those apps.
+    let warning = null;
+    if (requireTestedAll) {
+      const unenforceable = candidates.filter((c) => !c.app_slug).map((c) => c.app_name);
+      const enforceable = candidates.length - unenforceable.length;
+      if (enforceable === 0) {
+        warning =
+          "Heads up: none of the selected apps could be matched to the platform's tested-apps list, so the testers-only restriction can't be enforced for this round — anyone can vote.";
+      } else if (unenforceable.length) {
+        warning =
+          `Heads up: the testers-only restriction can't be enforced for ${unenforceable.join(', ')} (not matched to the platform's tested-apps list). The other ${enforceable} app(s) are still gated.`;
+      }
+    }
+
+    res.json({ round: publicRound(round, { mine: true }), ...(warning ? { warning } : {}) });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
     res.status(500).json({ error: err.message });
@@ -630,12 +673,27 @@ app.get('/api/rounds/:slug', async (req, res) => {
     // authoritative gate is the vote endpoint; failing open here is harmless.
     let eligibility = null;
     if (round.require_tested_all) {
-      eligibility = { requireTestedAll: true, eligible: null, missingNames: [], unverifiable: false };
-      // Only worth checking when the viewer could actually vote.
-      if (round.status === 'open' && !isCreator) {
-        const requiredSlugs = candidates.map((c) => c.app_slug).filter(Boolean);
+      eligibility = {
+        requireTestedAll: true,
+        eligible: null,
+        missingNames: [],
+        unverifiable: false,
+        unenforceableNames: [],
+      };
+      // Fix A: check for EVERY viewer on an open round — including the creator,
+      // who is also hard-gated at vote time. The client only blocks on
+      // eligible:false / unverifiable, so eligible:null (check didn't run)
+      // stays non-blocking.
+      if (round.status === 'open') {
+        // Enforceable candidates carry a slug; slug-less ones can't be matched.
+        const requiredCands = candidates
+          .filter((c) => c.app_slug)
+          .map((c) => ({ slug: c.app_slug, name: c.app_name }));
+        const unenforceableNames = candidates
+          .filter((c) => !c.app_slug)
+          .map((c) => c.app_name);
         const demo = IS_STAGING && req.query.demo === '1';
-        const r = await checkTestedAll(u, requiredSlugs, { demo });
+        const r = await checkTestedAll(u, requiredCands, { demo });
         const missingSet = new Set(r.missing.map(norm));
         const missingNames = candidates
           .filter((c) => c.app_slug && missingSet.has(norm(c.app_slug)))
@@ -653,11 +711,17 @@ app.get('/api/rounds/:slug', async (req, res) => {
           c.tested = !missingSet.has(norm(slug));
           c.testedUnknown = false;
         });
+        if (unenforceableNames.length) {
+          console.warn(
+            `[testers-gate] round ${round.slug}: ${unenforceableNames.length} candidate(s) have no slug and can't be gate-matched`
+          );
+        }
         eligibility = {
           requireTestedAll: true,
           eligible: r.unverifiable ? null : r.eligible,
           missingNames,
           unverifiable: r.unverifiable,
+          unenforceableNames,
         };
       }
     }
@@ -772,9 +836,11 @@ app.post('/api/rounds/:slug/vote', async (req, res) => {
     // Testers-only gate: must have tested every app in scope. Hard enforcement
     // — blocks rather than silently allowing on any failure mode.
     if (round.require_tested_all) {
-      const requiredSlugs = candidates.map((c) => c.app_slug).filter(Boolean);
+      const requiredCands = candidates
+        .filter((c) => c.app_slug)
+        .map((c) => ({ slug: c.app_slug, name: c.app_name }));
       const demo = IS_STAGING && req.query.demo === '1';
-      const elig = await checkTestedAll(u, requiredSlugs, { demo });
+      const elig = await checkTestedAll(u, requiredCands, { demo });
       if (!elig.eligible) {
         if (elig.unverifiable) {
           return res.status(400).json({
@@ -1252,6 +1318,59 @@ async function seedStaging() {
       { app_name: 'Staging demo App Charlie', app_url: appUrlFromSlug('staging-demo-charlie'),
         external_app_id: 990003, app_slug: 'staging-demo-charlie', owner_username: 'staging-demo-maker-3',
         contributors: [{ user_id: 900103, username: 'staging-demo-maker-3' }] },
+    ],
+  });
+
+  // 9) Testers-only round exercising the NAME-FALLBACK match (fix B). The two
+  //    candidates carry slugs that DON'T appear in STAGING_FALLBACK_LEADERBOARD
+  //    (so a slug-only match would miss), but their names ('Staging demo App
+  //    Alpha' / 'Staging demo App Bravo') DO appear there — so a viewer in the
+  //    leaderboard qualifies via name. The seeded tester isn't in the fallback,
+  //    so by default they're still blocked; add ?demo=1 to the URL to render the
+  //    eligible, submit-enabled ballot (steppers appear on every card).
+  await seedRound({
+    slug: 'staging-name-fallback',
+    title: 'Staging demo — Name Fallback Gate 🔤',
+    description: 'Testers-only round whose apps match the tested-apps list by NAME, not slug. Blocked by default; add ?demo=1 to qualify. 🧷',
+    creator_user_id: 900001,
+    creator_username: 'staging-demo-host',
+    audience: 'everyone',
+    votes_per_voter: 2,
+    max_votes_per_app: 1,
+    status: 'open',
+    require_tested_all: true,
+    candidates: [
+      // Slug intentionally mismatched vs the leaderboard's 'staging-demo-alpha'.
+      { app_name: 'Staging demo App Alpha', app_url: appUrlFromSlug('staging-demo-alpha'),
+        external_app_id: 990001, app_slug: 'staging-demo-alpha-renamed', owner_username: 'staging-demo-maker-1',
+        contributors: [{ user_id: 900101, username: 'staging-demo-maker-1' }] },
+      { app_name: 'Staging demo App Bravo', app_url: appUrlFromSlug('staging-demo-bravo'),
+        external_app_id: 990002, app_slug: 'staging-demo-bravo-renamed', owner_username: 'staging-demo-maker-2',
+        contributors: [{ user_id: 900102, username: 'staging-demo-maker-2' }] },
+    ],
+  });
+
+  // 10) Testers-only round where one candidate has NO slug and so can't be
+  //     gate-matched (fix C). The round-level "can't be enforced for …" note
+  //     renders for every viewer; the slugged candidate is still gated.
+  await seedRound({
+    slug: 'staging-unenforceable-gate',
+    title: 'Staging demo — Unenforceable Gate ⚠️',
+    description: 'Testers-only, but one app has no directory slug so the rule can\'t be enforced for it. 🫥',
+    creator_user_id: 900001,
+    creator_username: 'staging-demo-host',
+    audience: 'everyone',
+    votes_per_voter: 2,
+    max_votes_per_app: 1,
+    status: 'open',
+    require_tested_all: true,
+    candidates: [
+      { app_name: 'Staging demo App Alpha', app_url: appUrlFromSlug('staging-demo-alpha'),
+        external_app_id: 990001, app_slug: 'staging-demo-alpha', owner_username: 'staging-demo-maker-1',
+        contributors: [{ user_id: 900101, username: 'staging-demo-maker-1' }] },
+      // No app_slug → unmatchable → surfaced in eligibility.unenforceableNames.
+      { app_name: 'Staging demo Slugless App', owner_username: 'staging-demo-maker-4',
+        contributors: [{ user_id: 900104, username: 'staging-demo-maker-4' }] },
     ],
   });
 }
