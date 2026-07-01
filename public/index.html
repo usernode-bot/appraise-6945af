@@ -736,6 +736,28 @@
           }
           body.insertBefore(banner, body.firstChild);
         }
+
+        // Already voted: voting is one-shot. Once the viewer has a ballot in
+        // this round, lock the ballot (disable submit + steppers, keep the
+        // pre-filled counts visible read-only) and show a banner up top. Added
+        // last so its banner prepends ABOVE any testers-only note. The server
+        // is the authoritative gate (POST /vote rejects a second ballot).
+        if (d.hasVoted) {
+          const submitBtn = $('#submit', body);
+          if (submitBtn) {
+            submitBtn.disabled = true;
+            submitBtn.classList.add('opacity-50', 'pointer-events-none');
+          }
+          cardsEl.querySelectorAll('.inc, .dec').forEach((b) => {
+            b.disabled = true;
+            b.classList.add('opacity-50', 'pointer-events-none');
+          });
+          const voted = document.createElement('div');
+          voted.className = 'neon-card rounded-2xl p-4 mb-4 comic text-center text-emerald-200';
+          voted.innerHTML = `🗳️ You already voted.
+            <div class="text-zinc-300 mt-2 text-sm">Your ballot's locked in — results are below. 🎉</div>`;
+          body.insertBefore(voted, body.firstChild);
+        }
       } else if (r.status === 'draft') {
         body.innerHTML = `<div class="neon-card rounded-3xl p-8 text-center comic text-xl text-yellow-300">
           📝 This round is still a draft. Voting hasn't opened yet — check back soon! 🍿
