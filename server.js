@@ -318,6 +318,54 @@ function capForRule(rule, votesPerVoter) {
   return rule === 'concentrate' ? Math.max(1, votesPerVoter) : 1;
 }
 
+// Resolve a list of directory app ids into fully-formed candidate objects
+// (name / slug / url / contributors), authoritatively from the directory —
+// contributor user_ids come from the directory only, never the client, so a
+// caller can't strip themselves out to unlock self-votes. Shared by the create
+// handler and the admin app-edit endpoint so both stay in lockstep.
+//   - skipIds: directory ids already present in the round (deduped out)
+//   - skipNameKeys: lower-cased app_names already present (respects the
+//     UNIQUE (round_id, app_name) constraint)
+// Returns { candidates, skippedDuplicateNames } — the latter are ids that
+// resolved to a name colliding with an existing/earlier one and were dropped.
+function resolveDirectoryCandidates(wantIds, directory, { skipIds = new Set(), skipNameKeys = new Set() } = {}) {
+  const dirById = new Map(directory.map((a) => [a.id, a]));
+  const seen = new Set(skipNameKeys);
+  const candidates = [];
+  const skippedDuplicateNames = [];
+  for (const id of wantIds) {
+    if (skipIds.has(id)) continue; // already in the round
+    const appRec = dirById.get(id);
+    if (!appRec) continue; // dropped: not in the directory
+    const name = String(appRec.name || '').trim().slice(0, 120);
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (seen.has(key)) { skippedDuplicateNames.push(name); continue; }
+    seen.add(key);
+
+    const rawContribs = Array.isArray(appRec.contributors) ? appRec.contributors : [];
+    const contributors = [];
+    const seenU = new Set();
+    for (const c of rawContribs) {
+      const uid = parseInt(c && c.user_id, 10);
+      if (!Number.isFinite(uid) || seenU.has(uid)) continue;
+      seenU.add(uid);
+      contributors.push({ user_id: uid, username: String((c && c.username) || '').slice(0, 80) || null });
+    }
+    const appSlug = String(appRec.slug || '').trim().slice(0, 200) || null;
+    const ownerLabel = contributors.map((c) => c.username).filter(Boolean).join(', ').slice(0, 80) || null;
+    candidates.push({
+      external_app_id: id,
+      app_name: name,
+      app_slug: appSlug,
+      app_url: appUrlFromSlug(appSlug),
+      owner_username: ownerLabel,
+      contributors,
+    });
+  }
+  return { candidates, skippedDuplicateNames };
+}
+
 function publicRound(round, extra = {}) {
   return {
     slug: round.slug,
@@ -510,40 +558,10 @@ app.post('/api/rounds', async (req, res) => {
         return res.status(502).json({ error: "Couldn't reach the app directory — try again in a moment." });
       }
     }
-    const dirById = new Map(directory.map((a) => [a.id, a]));
-
     // Build candidates from matched ids, preserving the creator's pick order.
-    const seen = new Set();
-    const candidates = [];
-    for (const id of wantIds) {
-      const appRec = dirById.get(id);
-      if (!appRec) continue; // dropped: no longer in the directory
-      const name = String(appRec.name || '').trim().slice(0, 120);
-      if (!name) continue;
-      const key = name.toLowerCase();
-      if (seen.has(key)) continue; // respect UNIQUE (round_id, app_name)
-      seen.add(key);
-
-      const rawContribs = Array.isArray(appRec.contributors) ? appRec.contributors : [];
-      const contributors = [];
-      const seenU = new Set();
-      for (const c of rawContribs) {
-        const uid = parseInt(c && c.user_id, 10);
-        if (!Number.isFinite(uid) || seenU.has(uid)) continue;
-        seenU.add(uid);
-        contributors.push({ user_id: uid, username: String((c && c.username) || '').slice(0, 80) || null });
-      }
-      const appSlug = String(appRec.slug || '').trim().slice(0, 200) || null;
-      const ownerLabel = contributors.map((c) => c.username).filter(Boolean).join(', ').slice(0, 80) || null;
-      candidates.push({
-        external_app_id: id,
-        app_name: name,
-        app_slug: appSlug,
-        app_url: appUrlFromSlug(appSlug),
-        owner_username: ownerLabel,
-        contributors,
-      });
-    }
+    // Contributors are resolved server-side inside the helper (never trusted
+    // from the client).
+    const { candidates } = resolveDirectoryCandidates(wantIds, directory);
     if (candidates.length < 2) {
       return res.status(400).json({ error: 'Add at least 2 candidate apps from the directory.' });
     }
@@ -672,6 +690,10 @@ app.get('/api/rounds/:slug', async (req, res) => {
         app_name: c.app_name,
         app_url: c.app_url,
         owner_username: c.owner_username,
+        // Directory-sourced (public) identity — lets the admin app-editor mark
+        // which directory apps are already included and avoid re-adding them.
+        external_app_id: c.external_app_id,
+        app_slug: c.app_slug,
         is_own: !round.allow_self_vote && isContributor,
         my_votes: mine[c.id] || 0,
       };
@@ -738,9 +760,10 @@ app.get('/api/rounds/:slug', async (req, res) => {
     }
 
     // Results visible to: creator anytime, a voter once they've voted,
-    // everyone once the round is closed.
+    // everyone once the round is closed — plus any admin, who manages the
+    // round and needs the per-app tally to gauge the impact of removing an app.
     let results = null;
-    if (isCreator || hasVoted || round.status === 'closed') {
+    if (isCreator || hasVoted || round.status === 'closed' || isAdmin(u)) {
       const t = await tallyResults(round.id);
       results = {
         voterCount: t.voterCount,
@@ -938,6 +961,174 @@ app.patch('/api/rounds/:slug', async (req, res) => {
     res.json({
       round: publicRound(updated, { mine: updated.creator_user_id === req.user.id }),
       ...(warning ? { warning } : {}),
+    });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+// Admin-only edit of a round's INCLUDED APPS — add candidates sourced from the
+// platform directory and remove existing ones. Same gate shape as the other
+// admin mutations: 403 BEFORE the existence lookup so non-admins can't probe
+// slugs. Non-retroactive: removing a candidate cascade-deletes its votes +
+// contributors (the app is gone), but every surviving app's ballots are
+// untouched. Allowed at any status, for parity with PATCH / vote-rule /
+// require-tested / DELETE. A round must keep at least 2 apps — enforced inside
+// the transaction so a partial edit never persists.
+app.put('/api/rounds/:slug/apps', async (req, res) => {
+  if (!isAdmin(req.user)) {
+    return res.status(403).json({ error: 'Admins only.' });
+  }
+  const client = await pool.connect();
+  try {
+    const round = await getRoundBySlug(req.params.slug);
+    if (!round) return res.status(404).json({ error: 'Round not found.' });
+
+    const body = req.body || {};
+
+    // Parse/dedupe the requested additions (directory app ids) — same coercion
+    // loop as create.
+    const rawAdd = Array.isArray(body.add_app_ids) ? body.add_app_ids : [];
+    const addIds = [];
+    const seenAdd = new Set();
+    for (const raw of rawAdd) {
+      const id = parseInt(raw, 10);
+      if (!Number.isFinite(id) || seenAdd.has(id)) continue;
+      seenAdd.add(id);
+      addIds.push(id);
+    }
+
+    // Parse/dedupe removals (existing candidate ids).
+    const rawRemove = Array.isArray(body.remove_candidate_ids) ? body.remove_candidate_ids : [];
+    const removeIds = new Set();
+    for (const raw of rawRemove) {
+      const id = parseInt(raw, 10);
+      if (Number.isFinite(id)) removeIds.add(id);
+    }
+
+    const current = await loadCandidates(round.id);
+    const currentById = new Map(current.map((c) => [c.id, c]));
+    // Which candidates actually survive (scope removals to THIS round).
+    const survivorIds = new Set(
+      current.filter((c) => !removeIds.has(c.id)).map((c) => c.id)
+    );
+    // Directory ids + names already present AFTER removals — so we don't
+    // re-offer an app that stays, but DO allow re-adding one being removed.
+    const presentExternalIds = new Set();
+    const presentNameKeys = new Set();
+    for (const c of current) {
+      if (!survivorIds.has(c.id)) continue;
+      if (Number.isFinite(c.external_app_id)) presentExternalIds.add(c.external_app_id);
+      if (c.app_name) presentNameKeys.add(String(c.app_name).toLowerCase());
+    }
+
+    // Resolve additions from the directory. Only fetch when there's something
+    // to add — a removal-only edit never needs the directory (so it can't 502).
+    let toAdd = [];
+    let skippedDuplicateNames = [];
+    if (addIds.length) {
+      let directory;
+      try {
+        directory = await fetchDirectoryApps();
+      } catch (fetchErr) {
+        if (IS_STAGING) {
+          directory = STAGING_FALLBACK_APPS;
+        } else {
+          return res.status(502).json({ error: "Couldn't reach the app directory — try again in a moment." });
+        }
+      }
+      const resolved = resolveDirectoryCandidates(addIds, directory, {
+        skipIds: presentExternalIds,
+        skipNameKeys: presentNameKeys,
+      });
+      toAdd = resolved.candidates;
+      skippedDuplicateNames = resolved.skippedDuplicateNames;
+    }
+
+    await client.query('BEGIN');
+
+    // Removals first — votes + contributors cascade via ON DELETE CASCADE.
+    if (removeIds.size) {
+      await client.query(
+        `DELETE FROM round_candidates WHERE round_id = $1 AND id = ANY($2::int[])`,
+        [round.id, Array.from(removeIds)]
+      );
+    }
+
+    // Additions appended after the current max position.
+    const posRow = await client.query(
+      `SELECT COALESCE(MAX(position), -1) AS maxpos FROM round_candidates WHERE round_id = $1`,
+      [round.id]
+    );
+    let pos = (posRow.rows[0] ? posRow.rows[0].maxpos : -1) + 1;
+    for (const c of toAdd) {
+      const candIns = await client.query(
+        `INSERT INTO round_candidates
+           (round_id, app_name, app_url, owner_username, position, external_app_id, app_slug)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)
+         ON CONFLICT (round_id, app_name) DO NOTHING
+         RETURNING id`,
+        [round.id, c.app_name, c.app_url, c.owner_username, pos, c.external_app_id, c.app_slug]
+      );
+      if (!candIns.rows.length) { // collided with a surviving name → skipped
+        skippedDuplicateNames.push(c.app_name);
+        continue;
+      }
+      pos += 1;
+      const candidateId = candIns.rows[0].id;
+      for (const ct of c.contributors) {
+        await client.query(
+          `INSERT INTO round_candidate_contributors (round_id, candidate_id, user_id, username)
+           VALUES ($1,$2,$3,$4)
+           ON CONFLICT (candidate_id, user_id) DO NOTHING`,
+          [round.id, candidateId, ct.user_id, ct.username]
+        );
+      }
+    }
+
+    // Minimum-count guard — inside the transaction so a violating edit never
+    // persists (roll the whole thing back).
+    const countRow = await client.query(
+      `SELECT COUNT(*)::int AS n FROM round_candidates WHERE round_id = $1`,
+      [round.id]
+    );
+    const finalCount = countRow.rows[0] ? countRow.rows[0].n : 0;
+    if (finalCount < 2) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'A round needs at least 2 apps.' });
+    }
+
+    await client.query('COMMIT');
+
+    // Testers-only "can't be enforced" heads-up — same check as create / edit.
+    const warnings = [];
+    if (round.require_tested_all) {
+      const cands = await loadCandidates(round.id);
+      const unenforceable = cands.filter((c) => !c.app_slug).map((c) => c.app_name);
+      const enforceable = cands.length - unenforceable.length;
+      if (enforceable === 0) {
+        warnings.push(
+          "Heads up: none of the selected apps could be matched to the platform's tested-apps list, so the testers-only restriction can't be enforced for this round — anyone can vote."
+        );
+      } else if (unenforceable.length) {
+        warnings.push(
+          `Heads up: the testers-only restriction can't be enforced for ${unenforceable.join(', ')} (not matched to the platform's tested-apps list). The other ${enforceable} app(s) are still gated.`
+        );
+      }
+    }
+    if (skippedDuplicateNames.length) {
+      warnings.push(
+        `Skipped ${skippedDuplicateNames.join(', ')} — an app with that name is already in the round.`
+      );
+    }
+
+    res.json({
+      round: publicRound(round, { mine: round.creator_user_id === req.user.id }),
+      candidate_count: finalCount,
+      ...(warnings.length ? { warning: warnings.join(' ') } : {}),
     });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});
@@ -1576,6 +1767,40 @@ async function seedStaging() {
       // No app_slug → unmatchable → surfaced in eligibility.unenforceableNames.
       { app_name: 'Staging demo Slugless App', owner_username: 'staging-demo-maker-4',
         contributors: [{ user_id: 900104, username: 'staging-demo-maker-4' }] },
+    ],
+  });
+
+  // 11) Open round for exercising the admin "Edit included apps" flow. Seeded
+  //     with THREE of the four fallback directory apps (Alpha/Bravo/Charlie),
+  //     so Delta (990004) is available to ADD, and at 3 apps one can be REMOVED
+  //     while staying ≥ 2. Alpha carries a couple of votes so a tester sees the
+  //     "removing this app deletes its N votes" warning and can confirm the
+  //     cascade. Staging users are all admins, so any tester can open the panel.
+  await seedRound({
+    slug: 'staging-edit-apps',
+    title: 'Staging demo — Edit apps 🧩',
+    description: 'Admin can add/remove the competing apps here. Delta is available to add; Alpha already has votes so removing it warns about discarding them. 🧩',
+    creator_user_id: 900001,
+    creator_username: 'staging-demo-host',
+    audience: 'everyone',
+    votes_per_voter: 1,
+    max_votes_per_app: 1,
+    vote_rule: 'one_per_app',
+    status: 'open',
+    candidates: [
+      { app_name: 'Staging demo App Alpha', app_url: appUrlFromSlug('staging-demo-alpha'), owner_username: 'staging-demo-maker-1',
+        external_app_id: 990001, app_slug: 'staging-demo-alpha',
+        contributors: [{ user_id: 900101, username: 'staging-demo-maker-1' }] },
+      { app_name: 'Staging demo App Bravo', app_url: appUrlFromSlug('staging-demo-bravo'), owner_username: 'staging-demo-maker-2',
+        external_app_id: 990002, app_slug: 'staging-demo-bravo',
+        contributors: [{ user_id: 900102, username: 'staging-demo-maker-2' }] },
+      { app_name: 'Staging demo App Charlie', app_url: appUrlFromSlug('staging-demo-charlie'), owner_username: 'staging-demo-maker-3',
+        external_app_id: 990003, app_slug: 'staging-demo-charlie',
+        contributors: [{ user_id: 900103, username: 'staging-demo-maker-3' }] },
+    ],
+    ballots: [
+      { voter: 'staging-demo-voter-1', voter_id: 910001, picks: [0] }, // Alpha
+      { voter: 'staging-demo-voter-2', voter_id: 910002, picks: [0] }, // Alpha → 2 votes
     ],
   });
 }
