@@ -80,6 +80,21 @@
       "expectText": "votes_remaining"
     },
     {
+      "name": "Vote distribution control present",
+      "path": "/create",
+      "expectText": "Vote distribution"
+    },
+    {
+      "name": "Concentrate round shows rule badge",
+      "path": "/round/staging-fav-dev-tools",
+      "expectText": "concentrate allowed"
+    },
+    {
+      "name": "One-per-app round shows rule badge",
+      "path": "/round/staging-one-per-app",
+      "expectText": "one vote per app"
+    },
+    {
       "name": "Favicon resolves without auth",
       "path": "/favicon.ico"
     }
