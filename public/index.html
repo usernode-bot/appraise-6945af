@@ -373,6 +373,14 @@
             <textarea id="f-invitees" rows="2" class="w-full bg-black/40 border-2 border-purple-400/60 rounded-xl px-3 py-2 mt-1" placeholder="alice, bob, carol"></textarea>
           </div>
 
+          <div class="mb-3">
+            <label class="comic text-cyan-200">Vote distribution</label>
+            <select id="f-rule" class="w-full bg-black/40 border-2 border-orange-400/60 rounded-xl px-3 py-2 mt-1">
+              <option value="one_per_app">🎯 One vote per app (spread them out)</option>
+              <option value="concentrate">🧮 Concentrate (all votes can go on one app)</option>
+            </select>
+          </div>
+
           <div id="spread-note" class="comic text-sm text-emerald-300 mb-4"></div>
 
           <label class="flex items-center gap-3 comic text-cyan-200 mb-4 cursor-pointer select-none neon-card rounded-2xl p-3">
@@ -442,16 +450,19 @@
       loadApps();
 
       const vpv = $('#f-vpv', root);
+      const ruleSel = $('#f-rule', root);
       const spreadNote = $('#spread-note', root);
       const updateSpread = () => {
         const n = Math.max(1, parseInt(vpv.value, 10) || 1);
         if (n <= 1) {
-          spreadNote.textContent = '🧮 1 vote each — the "no dumping all votes on one app" rule kicks in at 2+.';
+          spreadNote.textContent = '🗳️ 1 vote each — both distribution rules behave the same with a single vote.';
+        } else if (ruleSel.value === 'concentrate') {
+          spreadNote.textContent = `🧮 Concentrate: a voter may put all ${n} of their votes on one app.`;
         } else {
-          spreadNote.textContent = `🧮 Fairness cap: at most ${n - 1} vote(s) on any single app (so you can't dump all ${n} on one).`;
+          spreadNote.textContent = `🎯 One vote per app: each app can get at most 1 of a voter's ${n} votes — they must spread out.`;
         }
       };
-      vpv.oninput = updateSpread; updateSpread();
+      vpv.oninput = updateSpread; ruleSel.onchange = updateSpread; updateSpread();
 
       const aud = $('#f-aud', root);
       aud.onchange = () => $('#invite-wrap', root).classList.toggle('hidden', aud.value !== 'invite');
@@ -462,6 +473,7 @@
           description: $('#f-desc', root).value.trim(),
           audience: aud.value,
           votes_per_voter: parseInt(vpv.value, 10) || 1,
+          vote_rule: ruleSel.value,
           invitees: $('#f-invitees', root).value,
           allow_self_vote: $('#f-self-vote', root).checked,
           require_tested_all: $('#f-require-tested', root).checked,
@@ -503,6 +515,7 @@
               <h2 class="funky text-2xl text-white">${pick(EMOJI)} ${esc(r.title)}</h2>
               <div class="comic text-cyan-200 mt-1">${audLabel(r.audience)} · 🗳️ ${allowance} vote(s) each · by @${esc(r.creator_username)}</div>
               <div class="comic text-sm mt-1 ${r.allow_self_vote ? 'text-emerald-300' : 'text-pink-300'}">${r.allow_self_vote ? '🙋 self-voting allowed' : '🚫 no self-voting — contributors can\'t vote for their own app'}</div>
+              <div class="comic text-sm mt-1 text-orange-300">${r.vote_rule === 'concentrate' ? '🧮 concentrate allowed — you can put all your votes on one app' : '🎯 one vote per app — spread your votes across apps'}</div>
               ${r.require_tested_all ? `<div class="comic text-sm mt-1 text-emerald-300">🧪 testers only — you must try every app in this round to vote</div>` : ''}
             </div>
             ${statusBadge(r.status)}
@@ -570,6 +583,36 @@
         };
         renderTesters();
 
+        // Admin-only: flip the vote-distribution rule on this round live.
+        // Non-retroactive — already-cast ballots are left untouched.
+        const rWrap = document.createElement('div');
+        rWrap.className = 'basis-full mt-1 pt-3 border-t-2 border-orange-400/40';
+        cc.appendChild(rWrap);
+        const renderRule = () => {
+          const concentrate = r.vote_rule === 'concentrate';
+          rWrap.innerHTML = `
+            <button id="vr-r" class="chunky-btn ${concentrate ? 'bg-orange-400 text-black' : 'bg-zinc-700 text-white'} px-4 py-2 rounded-xl">
+              ${concentrate ? '🧮 Vote rule: Concentrate' : '🎯 Vote rule: One per app'}
+            </button>
+            <span class="comic text-orange-200 text-sm self-center ml-2">admin · ${concentrate ? 'click to require one vote per app' : 'click to allow concentrating all votes on one app'}</span>`;
+          const btn = $('#vr-r', rWrap);
+          btn.onclick = async () => {
+            if (btn.disabled) return;
+            btn.disabled = true;
+            try {
+              const nextRule = concentrate ? 'one_per_app' : 'concentrate';
+              const out = await api('/api/rounds/' + encodeURIComponent(slug) + '/vote-rule',
+                { method: 'POST', body: JSON.stringify({ rule: nextRule }) });
+              toast(out.round.vote_rule === 'concentrate' ? 'Vote rule: Concentrate' : 'Vote rule: One per app');
+              renderDetail(root, slug);
+            } catch (e) {
+              toast(e.message, false);
+              btn.disabled = false;
+            }
+          };
+        };
+        renderRule();
+
         const wrap = document.createElement('div');
         wrap.className = 'basis-full mt-1 pt-3 border-t-2 border-pink-500/40';
         cc.appendChild(wrap);
@@ -622,7 +665,7 @@
             🗳️ SUBMIT BALLOT 🎉
           </button>
           <div id="v-err" class="comic text-pink-300 text-center mt-3"></div>
-          <p class="comic text-zinc-400 text-center text-sm mt-2">cap: max ${cap} on any one app · your ballot is secret 🤐</p>`;
+          <p class="comic text-zinc-400 text-center text-sm mt-2">${r.vote_rule === 'concentrate' ? `you can put up to all ${allowance} on one app` : 'one vote per app — spread them out'} · your ballot is secret 🤐</p>`;
 
         const cardsEl = $('#cards', body);
         cardsEl.innerHTML = d.candidates.map((c, i) => {
@@ -676,7 +719,10 @@
           inc.onclick = () => {
             const used = total();
             if (used >= allowance) { toast('No votes left! 🫨', false); shake(card); return; }
-            if ((alloc[id] || 0) >= cap) { toast(`Max ${cap} on one app — spread it! 🤹`, false); shake(card); return; }
+            if ((alloc[id] || 0) >= cap) {
+              toast(cap <= 1 ? 'One vote per app — spread it out! 🎯' : `Max ${cap} on one app! 🤹`, false);
+              shake(card); return;
+            }
             alloc[id] = (alloc[id] || 0) + 1; refresh();
           };
           dec.onclick = () => {

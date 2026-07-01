@@ -307,6 +307,17 @@ async function tallyResults(roundId) {
   return { byId, voterCount: voters.rows[0] ? voters.rows[0].n : 0 };
 }
 
+// Vote-distribution rule helpers. 'one_per_app' caps each app at 1 vote from a
+// voter; 'concentrate' lets a voter stack all their votes on one app. The
+// numeric cap (max_votes_per_app) is always derived from the rule + allowance.
+const VOTE_RULES = new Set(['one_per_app', 'concentrate']);
+function normalizeVoteRule(raw) {
+  return VOTE_RULES.has(raw) ? raw : 'one_per_app';
+}
+function capForRule(rule, votesPerVoter) {
+  return rule === 'concentrate' ? Math.max(1, votesPerVoter) : 1;
+}
+
 function publicRound(round, extra = {}) {
   return {
     slug: round.slug,
@@ -315,6 +326,7 @@ function publicRound(round, extra = {}) {
     audience: round.audience,
     votes_per_voter: round.votes_per_voter,
     max_votes_per_app: round.max_votes_per_app,
+    vote_rule: round.vote_rule || 'one_per_app',
     status: round.status,
     allow_self_vote: !!round.allow_self_vote,
     require_tested_all: !!round.require_tested_all,
@@ -536,11 +548,10 @@ app.post('/api/rounds', async (req, res) => {
       return res.status(400).json({ error: 'Add at least 2 candidate apps from the directory.' });
     }
 
-    // Spread cap: never allow ALL votes on one app when you have 2+.
-    const ceiling = Math.max(votesPerVoter - 1, 1);
-    let maxPerApp = parseInt(body.max_votes_per_app, 10);
-    if (!Number.isFinite(maxPerApp) || maxPerApp < 1) maxPerApp = ceiling;
-    if (maxPerApp > ceiling) maxPerApp = ceiling; // can tighten, never loosen
+    // Vote-distribution rule (creator-chosen). The numeric per-app cap is
+    // derived from it: one_per_app → 1, concentrate → the full allowance.
+    const voteRule = normalizeVoteRule(body.vote_rule);
+    const maxPerApp = capForRule(voteRule, votesPerVoter);
 
     // Invitees (only meaningful for invite audience).
     const invitees = [];
@@ -572,11 +583,11 @@ app.post('/api/rounds', async (req, res) => {
     const roundIns = await client.query(
       `INSERT INTO rounds
          (slug, title, description, creator_user_id, creator_username,
-          audience, votes_per_voter, max_votes_per_app, status, allow_self_vote, require_tested_all)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'draft',$9,$10)
+          audience, votes_per_voter, max_votes_per_app, status, allow_self_vote, require_tested_all, vote_rule)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'draft',$9,$10,$11)
        RETURNING *`,
       [slug, title.slice(0, 140), description.slice(0, 2000), u.id, u.username,
-       audience, votesPerVoter, maxPerApp, allowSelfVote, requireTestedAll]
+       audience, votesPerVoter, maxPerApp, allowSelfVote, requireTestedAll, voteRule]
     );
     const round = roundIns.rows[0];
 
@@ -799,6 +810,29 @@ app.post('/api/rounds/:slug/require-tested', async (req, res) => {
   }
 });
 
+// Admin-only live toggle for the vote-distribution rule. Mirrors the
+// require-tested endpoint: admin-gated (403 before existence lookup so
+// non-admins can't probe slugs), non-retroactive (never rewrites already-cast
+// ballots), and keeps max_votes_per_app in sync with the chosen rule.
+app.post('/api/rounds/:slug/vote-rule', async (req, res) => {
+  try {
+    if (!isAdmin(req.user)) {
+      return res.status(403).json({ error: 'Admins only.' });
+    }
+    const rule = normalizeVoteRule(req.body && req.body.rule);
+    const round = await getRoundBySlug(req.params.slug);
+    if (!round) return res.status(404).json({ error: 'Round not found.' });
+    const cap = capForRule(rule, round.votes_per_voter);
+    const { rows } = await pool.query(
+      `UPDATE rounds SET vote_rule = $1, max_votes_per_app = $2 WHERE id = $3 RETURNING *`,
+      [rule, cap, round.id]
+    );
+    res.json({ round: publicRound(rows[0], { mine: rows[0].creator_user_id === req.user.id }) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Permanently delete a round (admin only). The admin check runs BEFORE any
 // existence lookup so non-admins can't probe which slugs exist. Child rows
 // (candidates, contributors, invitees, votes) all FK into rounds with
@@ -1011,6 +1045,22 @@ async function migrate() {
   // checked live against the platform leaderboard. Off by default.
   await pool.query(`ALTER TABLE rounds ADD COLUMN IF NOT EXISTS require_tested_all BOOLEAN NOT NULL DEFAULT false`);
 
+  // Per-round vote-distribution rule (creator-set, admin-toggleable live):
+  //   'one_per_app'  → a voter may place at most 1 vote on any single app
+  //   'concentrate'  → a voter may pile all their votes onto one app
+  // max_votes_per_app is the numeric enforcement knob and is kept in sync
+  // with this label (1 for one_per_app, votes_per_voter for concentrate).
+  await pool.query(`ALTER TABLE rounds ADD COLUMN IF NOT EXISTS vote_rule TEXT NOT NULL DEFAULT 'one_per_app'`);
+  // Backfill the label from the stored cap for pre-existing rounds — WITHOUT
+  // rewriting max_votes_per_app, so any legacy round keeps its exact current
+  // behaviour until someone explicitly re-configures it. Only touches rows
+  // still carrying the column default.
+  await pool.query(
+    `UPDATE rounds
+        SET vote_rule = CASE WHEN max_votes_per_app <= 1 THEN 'one_per_app' ELSE 'concentrate' END
+      WHERE vote_rule = 'one_per_app' AND max_votes_per_app > 1`
+  );
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS round_candidates (
       id SERIAL PRIMARY KEY,
@@ -1071,13 +1121,14 @@ async function seedRound(spec) {
   const r = await pool.query(
     `INSERT INTO rounds
        (slug, title, description, creator_user_id, creator_username,
-        audience, votes_per_voter, max_votes_per_app, status, allow_self_vote, require_tested_all)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+        audience, votes_per_voter, max_votes_per_app, status, allow_self_vote, require_tested_all, vote_rule)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
      ON CONFLICT (slug) DO NOTHING
      RETURNING id`,
     [spec.slug, spec.title, spec.description, spec.creator_user_id, spec.creator_username,
      spec.audience, spec.votes_per_voter, spec.max_votes_per_app, spec.status,
-     spec.allow_self_vote === true, spec.require_tested_all === true]
+     spec.allow_self_vote === true, spec.require_tested_all === true,
+     normalizeVoteRule(spec.vote_rule)]
   );
   if (r.rows.length === 0) return; // already seeded — stay idempotent
   const roundId = r.rows[0].id;
@@ -1125,16 +1176,18 @@ async function seedRound(spec) {
 async function seedStaging() {
   if (!IS_STAGING) return;
 
-  // 1) Open "everyone" round, 3 votes each.
+  // 1) Open "everyone" round, 3 votes each — CONCENTRATE rule: a voter may
+  //    pile all 3 votes onto a single app.
   await seedRound({
     slug: 'staging-fav-dev-tools',
     title: 'Staging demo — Favorite Dev Tools',
-    description: 'Pick your favorite tools! You have 3 votes — spread them out. 🛠️',
+    description: 'Pick your favorite tools! You have 3 votes — pile them all on one if you like. 🛠️',
     creator_user_id: 900001,
     creator_username: 'staging-demo-host',
     audience: 'everyone',
     votes_per_voter: 3,
-    max_votes_per_app: 2,
+    max_votes_per_app: 3,
+    vote_rule: 'concentrate',
     status: 'open',
     candidates: [
       { app_name: 'Staging demo App Alpha', app_url: 'https://example.com/alpha', owner_username: 'staging-demo-maker-1',
@@ -1149,6 +1202,32 @@ async function seedStaging() {
       { app_name: 'Staging demo App Delta', app_url: 'https://example.com/delta', owner_username: 'staging-demo-maker-4',
         external_app_id: 990004, app_slug: 'staging-demo-delta',
         contributors: [{ user_id: 900104, username: 'staging-demo-maker-4' }] },
+    ],
+  });
+
+  // 1b) Open "everyone" round, 3 votes each — ONE-PER-APP rule: each app can
+  //     take at most 1 of a voter's 3 votes, so they must spread out.
+  await seedRound({
+    slug: 'staging-one-per-app',
+    title: 'Staging demo — One Vote Per App 🎯',
+    description: 'You have 3 votes, but each app can only get 1 from you — spread them out! 🎯',
+    creator_user_id: 900001,
+    creator_username: 'staging-demo-host',
+    audience: 'everyone',
+    votes_per_voter: 3,
+    max_votes_per_app: 1,
+    vote_rule: 'one_per_app',
+    status: 'open',
+    candidates: [
+      { app_name: 'Staging demo App Alpha', app_url: 'https://example.com/alpha', owner_username: 'staging-demo-maker-1',
+        external_app_id: 990001, app_slug: 'staging-demo-alpha',
+        contributors: [{ user_id: 900101, username: 'staging-demo-maker-1' }] },
+      { app_name: 'Staging demo App Bravo', app_url: 'https://example.com/bravo', owner_username: 'staging-demo-maker-2',
+        external_app_id: 990002, app_slug: 'staging-demo-bravo',
+        contributors: [{ user_id: 900102, username: 'staging-demo-maker-2' }] },
+      { app_name: 'Staging demo App Charlie', app_url: 'https://example.com/charlie', owner_username: 'staging-demo-maker-3',
+        external_app_id: 990003, app_slug: 'staging-demo-charlie',
+        contributors: [{ user_id: 900103, username: 'staging-demo-maker-3' }] },
     ],
   });
 
