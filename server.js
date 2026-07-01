@@ -831,6 +831,18 @@ app.post('/api/rounds/:slug/vote', async (req, res) => {
       return res.status(403).json({ error: 'You are not invited to this round.' });
     }
 
+    // One-shot voting: once a ballot exists for this user in this round, it's
+    // locked. Enforced server-side (not just via the disabled UI button) so a
+    // crafted request or a double-click race can't overwrite an existing
+    // ballot. The frontend surfaces this 400 via the ballot error line + toast.
+    const existing = await pool.query(
+      `SELECT 1 FROM votes WHERE round_id = $1 AND voter_user_id = $2 LIMIT 1`,
+      [round.id, u.id]
+    );
+    if (existing.rows.length > 0) {
+      return res.status(400).json({ error: 'You already voted.' });
+    }
+
     const candidates = await loadCandidates(round.id);
 
     // Testers-only gate: must have tested every app in scope. Hard enforcement
