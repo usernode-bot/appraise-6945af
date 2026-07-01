@@ -471,6 +471,7 @@
           const out = await api('/api/rounds', { method: 'POST', body: JSON.stringify(payload) });
           confetti(120);
           toast('Round created! 🎉');
+          if (out.warning) toast(out.warning, false);
           go('/round/' + out.round.slug);
         } catch (e) {
           $('#c-err', root).textContent = '💢 ' + e.message;
@@ -709,6 +710,15 @@
         // check couldn't run (unverifiable). eligible:null with no unverifiable
         // flag means it wasn't checked (e.g. the creator) — don't block then.
         const elig = d.eligibility;
+        // Fix C: if some candidate apps can't be gate-matched (no recognized
+        // slug), say so plainly instead of silently behaving as ungated for
+        // them. Shown to everyone (creator included), regardless of eligibility.
+        if (elig && elig.requireTestedAll && (elig.unenforceableNames || []).length) {
+          const note = document.createElement('div');
+          note.className = 'neon-card rounded-2xl p-3 mb-4 comic text-center text-zinc-300 text-sm';
+          note.innerHTML = `ℹ️ The testers-only rule can't be enforced for: <span class="text-yellow-300">${elig.unenforceableNames.map(esc).join(', ')}</span> — these apps aren't matched to the platform's tested-apps list, so voting on them isn't gated.`;
+          body.insertBefore(note, body.firstChild);
+        }
         if (elig && elig.requireTestedAll && (elig.eligible === false || elig.unverifiable)) {
           const submitBtn = $('#submit', body);
           if (submitBtn) {
