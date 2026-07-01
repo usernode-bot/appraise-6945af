@@ -50,6 +50,16 @@
       "expectText": "Edit round details"
     },
     {
+      "name": "Admin edit-included-apps affordance",
+      "path": "/round/staging-edit-apps",
+      "expectText": "Edit included apps"
+    },
+    {
+      "name": "Edit-apps round detail renders",
+      "path": "/round/staging-edit-apps",
+      "expectText": "Edit apps"
+    },
+    {
       "name": "List shows admin delete buttons",
       "path": "/",
       "expectSelector": ".del-row"

@@ -737,6 +737,165 @@
 
         renderEditIdle();
 
+        // Admin-only: edit the round's INCLUDED APPS — add from the directory
+        // and remove existing ones. Non-retroactive; removing an app that has
+        // votes discards those votes (cascade), surfaced with a warning.
+        const aWrap = document.createElement('div');
+        aWrap.className = 'basis-full mt-1 pt-3 border-t-2 border-lime-400/40';
+        cc.appendChild(aWrap);
+
+        // Per-candidate vote counts (admins receive `results`). Used for the
+        // "removing this app deletes its N votes" warning.
+        const voteById = {};
+        if (d.results && Array.isArray(d.results.candidates)) {
+          d.results.candidates.forEach((c) => { voteById[c.id] = c.votes || 0; });
+        }
+        // Directory ids already in the round → shown as already-included.
+        const includedExtIds = new Set(
+          (d.candidates || [])
+            .map((c) => c.external_app_id)
+            .filter((x) => Number.isFinite(x))
+        );
+
+        const renderAppsIdle = () => {
+          aWrap.innerHTML = `<button id="edit-apps" class="chunky-btn bg-lime-400 text-black px-4 py-2 rounded-xl">🧩 Edit included apps</button>
+            <span class="comic text-lime-200 text-sm self-center ml-2">admin · add or remove the competing apps</span>`;
+          $('#edit-apps', aWrap).onclick = renderAppsForm;
+        };
+
+        const renderAppsForm = async () => {
+          const removeSet = new Set();     // candidate ids to remove
+          const addSet = new Set();        // directory app ids to add
+          aWrap.innerHTML = `
+            <div class="neon-card rounded-2xl p-4 space-y-3">
+              <div class="funky text-lg text-lime-200">🧩 Edit included apps</div>
+              <div id="ea-warn" class="comic text-sm text-yellow-300"></div>
+              <div>
+                <div class="comic text-cyan-200 mb-1">Currently in this round</div>
+                <div id="ea-current" class="space-y-2"></div>
+              </div>
+              <div>
+                <div class="comic text-cyan-200 mb-1">Add from the directory</div>
+                <div id="ea-picker" class="space-y-2 max-h-72 overflow-auto"></div>
+              </div>
+              <div class="flex gap-2 flex-wrap">
+                <button id="ea-save" class="chunky-btn bg-lime-400 text-black px-4 py-2 rounded-xl">💾 Save app changes</button>
+                <button id="ea-cancel" class="chunky-btn bg-zinc-700 text-white px-4 py-2 rounded-xl">Cancel</button>
+              </div>
+              <div id="ea-err" class="comic text-pink-300"></div>
+            </div>`;
+
+          const warnEl = $('#ea-warn', aWrap);
+          const currentEl = $('#ea-current', aWrap);
+          const pickerEl = $('#ea-picker', aWrap);
+
+          // Count how many apps would remain after the pending edit.
+          const remainingCount = () =>
+            (d.candidates || []).filter((c) => !removeSet.has(c.id)).length + addSet.size;
+
+          const refreshWarn = () => {
+            const lostVotes = (d.candidates || [])
+              .filter((c) => removeSet.has(c.id))
+              .reduce((n, c) => n + (voteById[c.id] || 0), 0);
+            const bits = [];
+            if (lostVotes > 0) {
+              bits.push(`⚠️ Removing these apps permanently discards ${lostVotes} cast vote(s).`);
+            }
+            const remain = remainingCount();
+            if (remain < 2) bits.push('💢 A round needs at least 2 apps.');
+            warnEl.innerHTML = bits.join('<br>');
+          };
+
+          const renderCurrent = () => {
+            const cands = d.candidates || [];
+            currentEl.innerHTML = cands.map((c) => {
+              const removing = removeSet.has(c.id);
+              const v = voteById[c.id] || 0;
+              return `
+                <div class="flex items-center gap-3 neon-card rounded-xl p-2 ${removing ? 'opacity-50 line-through' : ''}">
+                  <span class="funky text-white flex-1">${esc(c.app_name)}</span>
+                  ${v > 0 ? `<span class="comic text-xs text-yellow-300">🗳️ ${v} vote(s)</span>` : ''}
+                  <button class="ea-rm chunky-btn ${removing ? 'bg-zinc-700 text-white' : 'bg-red-600 text-white'} px-3 py-1 rounded-lg text-sm" data-id="${c.id}">
+                    ${removing ? 'Undo' : 'Remove'}
+                  </button>
+                </div>`;
+            }).join('');
+            currentEl.querySelectorAll('.ea-rm').forEach((btn) => {
+              const id = parseInt(btn.dataset.id, 10);
+              btn.onclick = () => {
+                removeSet.has(id) ? removeSet.delete(id) : removeSet.add(id);
+                renderCurrent();
+                refreshWarn();
+              };
+            });
+          };
+
+          renderCurrent();
+          refreshWarn();
+
+          // Directory picker — reuse appOptRow, then mark already-included apps.
+          pickerEl.innerHTML = `<div class="comic text-cyan-200 animate-pulse">loading apps from the directory… 🛰️</div>`;
+          try {
+            const data = await api('/api/apps');
+            const apps = data.apps || [];
+            if (!apps.length) {
+              pickerEl.innerHTML = `<div class="comic text-yellow-300">😶 No apps found in the directory.</div>`;
+            } else {
+              pickerEl.innerHTML = apps.map((a, i) => appOptRow(a, i)).join('');
+              pickerEl.querySelectorAll('.app-cb').forEach((cb) => {
+                const id = parseInt(cb.dataset.id, 10);
+                if (includedExtIds.has(id)) {
+                  cb.checked = true;
+                  cb.disabled = true;
+                  cb.closest('.app-opt').classList.add('opacity-60');
+                  const lbl = cb.closest('.app-opt').querySelector('.funky');
+                  if (lbl) lbl.insertAdjacentHTML('beforeend', ' <span class="comic text-xs text-lime-300">(already in round)</span>');
+                } else {
+                  cb.checked = addSet.has(id);
+                  cb.onchange = () => {
+                    cb.checked ? addSet.add(id) : addSet.delete(id);
+                    refreshWarn();
+                  };
+                }
+              });
+            }
+          } catch (e) {
+            pickerEl.innerHTML = `<div class="comic text-pink-300">😬 ${esc(e.message)} — couldn't load the app list.</div>`;
+          }
+
+          $('#ea-cancel', aWrap).onclick = renderAppsIdle;
+          const saveBtn = $('#ea-save', aWrap);
+          saveBtn.onclick = async () => {
+            if (saveBtn.disabled) return;
+            if (remainingCount() < 2) {
+              $('#ea-err', aWrap).textContent = '💢 A round needs at least 2 apps.';
+              shake(saveBtn);
+              return;
+            }
+            saveBtn.disabled = true;
+            saveBtn.textContent = '💾 Saving…';
+            try {
+              const out = await api('/api/rounds/' + encodeURIComponent(slug) + '/apps', {
+                method: 'PUT',
+                body: JSON.stringify({
+                  add_app_ids: [...addSet],
+                  remove_candidate_ids: [...removeSet],
+                }),
+              });
+              toast('Apps updated ✨');
+              if (out.warning) toast(out.warning, false);
+              renderDetail(root, slug);
+            } catch (e) {
+              $('#ea-err', aWrap).textContent = '💢 ' + e.message;
+              toast(e.message, false);
+              saveBtn.disabled = false;
+              saveBtn.textContent = '💾 Save app changes';
+            }
+          };
+        };
+
+        renderAppsIdle();
+
         const wrap = document.createElement('div');
         wrap.className = 'basis-full mt-1 pt-3 border-t-2 border-pink-500/40';
         cc.appendChild(wrap);
