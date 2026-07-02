@@ -511,8 +511,12 @@ app.get('/api/rounds', async (req, res) => {
   }
 });
 
-// Create a draft round.
+// Create a draft round. Admin-only (issue #24): same gate shape as the other
+// admin mutations — 403 before any other work so non-admins can't create.
 app.post('/api/rounds', async (req, res) => {
+  if (!isAdmin(req.user)) {
+    return res.status(403).json({ error: 'Admins only.' });
+  }
   const client = await pool.connect();
   try {
     const u = req.user;

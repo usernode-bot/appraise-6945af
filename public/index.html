@@ -251,8 +251,12 @@
     }
     const audLabel = (a) => a === 'invite' ? '🤫 Invited only' : '🌍 Everyone';
 
-    const EMPTY_LIST_HTML = `<div class="neon-card rounded-3xl p-8 text-center comic text-xl text-zinc-300">
-      No rounds yet… be the chaos you want to see 🌪️<br>Smash <b>CREATE A ROUND</b>!</div>`;
+    // Empty-state copy: only admins get the CREATE A ROUND call-to-action,
+    // since only they see the button (round creation is admin-only).
+    const emptyListHtml = (admin) => `<div class="neon-card rounded-3xl p-8 text-center comic text-xl text-zinc-300">
+      ${admin
+        ? 'No rounds yet… be the chaos you want to see 🌪️<br>Smash <b>CREATE A ROUND</b>!'
+        : 'No rounds yet… check back soon! 🌪️'}</div>`;
 
     // Confirm + DELETE a round, shared by the list cards and the detail view so
     // both entry points behave identically. Returns true on success, false if
@@ -281,20 +285,24 @@
       catch (e) { root.innerHTML = errBox(e); return; }
 
       const rounds = data.rounds || [];
+      // Round creation is admin-only: hide the button entirely for everyone
+      // else (a missing/failed ME reads as non-admin; the server enforces too).
+      const canCreate = !!(ME && ME.is_admin);
       root.innerHTML = `
         <div class="flex items-center justify-between gap-3 mb-5 flex-wrap">
           <h2 class="funky text-2xl text-cyan-300 tilt-1">🎪 Voting Rounds</h2>
-          <button id="new-btn" class="chunky-btn jiggly bg-gradient-to-r from-pink-500 to-yellow-400 text-black px-5 py-3 rounded-2xl text-lg">
+          ${canCreate ? `<button id="new-btn" class="chunky-btn jiggly bg-gradient-to-r from-pink-500 to-yellow-400 text-black px-5 py-3 rounded-2xl text-lg">
             ➕ CREATE A ROUND
-          </button>
+          </button>` : ''}
         </div>
         <div id="rounds" class="space-y-4"></div>`;
 
-      $('#new-btn', root).onclick = () => go('/create');
+      const newBtn = $('#new-btn', root);
+      if (newBtn) newBtn.onclick = () => go('/create');
 
       const list = $('#rounds', root);
       if (!rounds.length) {
-        list.innerHTML = EMPTY_LIST_HTML;
+        list.innerHTML = emptyListHtml(canCreate);
         return;
       }
       list.innerHTML = rounds.map((r, i) => `
@@ -340,6 +348,18 @@
           <span class="funky text-white">${pick(EMOJI)} ${esc(a.name)}</span>
           ${a.slug ? `<span class="comic text-xs text-zinc-400 ml-auto break-all">${esc(a.slug)}</span>` : ''}
         </label>`;
+    }
+
+    // Non-admins who deep-link to /create get a notice instead of the form —
+    // the server enforces the same gate on POST /api/rounds regardless.
+    function renderCreateDenied(root) {
+      root.innerHTML = `
+        <button id="back" class="comic text-cyan-300 mb-3">⬅ back to rounds</button>
+        <div class="neon-card rounded-3xl p-8 text-center">
+          <div class="funky text-2xl text-yellow-300 mb-2 tilt-1">🔒 Only admins can create rounds</div>
+          <div class="comic text-zinc-300">Ask an admin if you'd like a new voting round.</div>
+        </div>`;
+      $('#back', root).onclick = () => go('/');
     }
 
     function renderCreate(root) {
@@ -1145,7 +1165,10 @@
     async function render() {
       const root = $('#app');
       const p = window.location.pathname;
-      if (p === '/create') return renderCreate(root);
+      if (p === '/create') {
+        if (!(ME && ME.is_admin)) return renderCreateDenied(root);
+        return renderCreate(root);
+      }
       const m = p.match(/^\/round\/(.+)$/);
       if (m) return renderDetail(root, decodeURIComponent(m[1]));
       return renderList(root);
