@@ -3,7 +3,7 @@
   "secrets": [
     {
       "key": "ADMIN_USERNAMES",
-      "description": "Comma/space-separated list of Usernode usernames who can delete voting rounds. Leave unset for no admins in production.",
+      "description": "Comma/space-separated list of Usernode usernames who can create, edit, and delete voting rounds. Leave unset for no admins in production.",
       "required": false,
       "private": true
     }
