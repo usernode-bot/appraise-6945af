@@ -518,7 +518,10 @@
     async function renderDetail(root, slug) {
       root.innerHTML = `<div class="text-center comic text-2xl animate-pulse">summoning the round… 🔮</div>`;
       let d;
-      try { d = await api('/api/rounds/' + encodeURIComponent(slug)); }
+      // Staging-only preview of the non-admin hidden-results state: forward
+      // ?demo_nonadmin=1 from the page URL to the API (a no-op in production).
+      const demoNonadmin = params.get('demo_nonadmin') === '1' ? '?demo_nonadmin=1' : '';
+      try { d = await api('/api/rounds/' + encodeURIComponent(slug) + demoNonadmin); }
       catch (e) { root.innerHTML = errBox(e); return; }
 
       const r = d.round;
@@ -559,7 +562,7 @@
           };
         } else if (r.status === 'open') {
           cc.innerHTML = `<button id="close-r" class="chunky-btn bg-fuchsia-400 text-black px-4 py-2 rounded-xl">🔒 Close round</button>
-            <span class="comic text-cyan-200 self-center">you can peek at results anytime 👑</span>`;
+            ${ME && ME.is_admin ? '<span class="comic text-cyan-200 self-center">you can peek at results anytime 👑</span>' : ''}`;
           $('#close-r', cc).onclick = async () => {
             try { await api('/api/rounds/' + slug + '/close', { method: 'POST' }); renderDetail(root, slug); }
             catch (e) { toast(e.message, false); }
@@ -1042,7 +1045,7 @@
           try {
             await api('/api/rounds/' + slug + '/vote', { method: 'POST', body: JSON.stringify({ allocation }) });
             confetti(160);
-            toast('Ballot submitted! 🥳 results unlocked');
+            toast(ME && ME.is_admin ? 'Ballot submitted! 🥳 results unlocked' : 'Ballot submitted! 🥳');
             renderDetail(root, slug);
           } catch (e) {
             $('#v-err', body).textContent = '💢 ' + e.message;
@@ -1104,7 +1107,9 @@
           const voted = document.createElement('div');
           voted.className = 'neon-card rounded-2xl p-4 mb-4 comic text-center text-emerald-200';
           voted.innerHTML = `🗳️ You already voted.
-            <div class="text-zinc-300 mt-2 text-sm">Your ballot's locked in — results are below. 🎉</div>`;
+            <div class="text-zinc-300 mt-2 text-sm">${d.results
+              ? "Your ballot's locked in — results are below. 🎉"
+              : "Your ballot's locked in — results will be revealed when the round ends. 🤐"}</div>`;
           body.insertBefore(voted, body.firstChild);
         }
       } else if (r.status === 'draft') {
@@ -1141,10 +1146,11 @@
               </div>`).join('')}
           </div>`;
         body.appendChild(panel);
-      } else if (r.status === 'open' && !d.isCreator) {
+      } else if (r.status === 'open') {
+        // Live tallies are admin-only; everyone else waits for the close.
         const note = document.createElement('div');
         note.className = 'comic text-center text-zinc-400 mt-6';
-        note.textContent = '🙈 Results are hidden until you cast your ballot — vote first!';
+        note.textContent = '🙈 Results are hidden until voting ends — check back when the round closes!';
         body.appendChild(note);
       }
 

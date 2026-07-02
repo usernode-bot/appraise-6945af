@@ -40,6 +40,21 @@
       "expectText": "RESULTS"
     },
     {
+      "name": "Admin sees live results on open round",
+      "path": "/round/staging-voting-progress",
+      "expectText": "RESULTS"
+    },
+    {
+      "name": "Non-admin view hides results on open round",
+      "path": "/round/staging-voting-progress?demo_nonadmin=1",
+      "expectText": "Results are hidden until voting ends"
+    },
+    {
+      "name": "Closed round shows results even in non-admin view",
+      "path": "/round/staging-best-game?demo_nonadmin=1",
+      "expectText": "RESULTS"
+    },
+    {
       "name": "Admin delete affordance",
       "path": "/round/staging-deletable-demo",
       "expectText": "Delete round"

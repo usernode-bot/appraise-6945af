@@ -763,11 +763,16 @@ app.get('/api/rounds/:slug', async (req, res) => {
       }
     }
 
-    // Results visible to: creator anytime, a voter once they've voted,
-    // everyone once the round is closed — plus any admin, who manages the
-    // round and needs the per-app tally to gauge the impact of removing an app.
+    // Results visible to: admins anytime (they manage the round and need the
+    // per-app tally, e.g. to gauge the impact of removing an app), everyone
+    // else only once the round is closed (issue #26 — no live tallies for
+    // regular voters, not even after they've voted). `?demo_nonadmin=1` is a
+    // staging-only, privilege-REDUCING preview so testers (who are all admins
+    // in staging) can see the hidden state; production behaviour is identical.
+    const adminResultsView =
+      isAdmin(u) && !(IS_STAGING && req.query.demo_nonadmin === '1');
     let results = null;
-    if (isCreator || hasVoted || round.status === 'closed' || isAdmin(u)) {
+    if (adminResultsView || round.status === 'closed') {
       const t = await tallyResults(round.id);
       results = {
         voterCount: t.voterCount,
@@ -1273,7 +1278,10 @@ app.post('/api/rounds/:slug/vote', async (req, res) => {
   }
 });
 
-// Standalone results endpoint (same gating as the detail embed).
+// Standalone results endpoint (same gating as the detail embed): admins see
+// live tallies, everyone else only once the round is closed (issue #26).
+// `?demo_nonadmin=1` is the same staging-only, privilege-reducing preview as
+// the detail endpoint's.
 app.get('/api/rounds/:slug/results', async (req, res) => {
   try {
     const u = req.user;
@@ -1282,11 +1290,10 @@ app.get('/api/rounds/:slug/results', async (req, res) => {
     if (!(await canViewRound(round, u))) {
       return res.status(403).json({ error: 'You are not invited to this round.' });
     }
-    const isCreator = round.creator_user_id === u.id;
-    const mine = await myAllocation(round.id, u.id);
-    const hasVoted = Object.keys(mine).length > 0;
-    if (!(isCreator || hasVoted || round.status === 'closed')) {
-      return res.status(403).json({ error: 'Vote first to see the results.' });
+    const adminResultsView =
+      isAdmin(u) && !(IS_STAGING && req.query.demo_nonadmin === '1');
+    if (!(adminResultsView || round.status === 'closed')) {
+      return res.status(403).json({ error: 'Results are hidden until the round ends.' });
     }
     const candidates = await loadCandidates(round.id);
     const t = await tallyResults(round.id);
