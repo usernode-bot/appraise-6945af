@@ -121,7 +121,7 @@ function appUrlFromSlug(slug) {
 // and `user_id` with req.user.id. Used to gate voting on require_tested_all
 // rounds.
 const LEADERBOARD_URL =
-  'https://social-vibecoding.usernodelabs.org/api/leaderboard/users?include_0_values=0&fields=active_apps,address,user_id';
+  'https://social-vibecoding.usernodelabs.org/api/leaderboard/users?include_0_values=0&fields=active_apps,address,user_id,username';
 
 // Obviously-fake leaderboard used ONLY in staging when the live API can't be
 // reached (staging has no guaranteed outbound). Never used in production. The
@@ -160,6 +160,41 @@ async function fetchLeaderboard() {
   } finally {
     clearTimeout(timer);
   }
+}
+
+// ~60s module-level cache of the platform feed, used ONLY by the PUBLIC
+// /api/leaderboard endpoint — it's unauthenticated and may be polled by
+// third-party tools, so don't hammer the platform API on every hit. The vote
+// gate (checkTestedAll) keeps fetching live: a stale read there could wrongly
+// block (or admit) a ballot, while a minute-stale tested count in a progress
+// feed is harmless.
+const FEED_CACHE_TTL_MS = 60_000;
+let feedCache = { items: null, at: 0 };
+async function fetchLeaderboardCached() {
+  if (feedCache.items && Date.now() - feedCache.at < FEED_CACHE_TTL_MS) {
+    return feedCache.items;
+  }
+  const items = await fetchLeaderboard();
+  feedCache = { items, at: Date.now() };
+  return items;
+}
+
+// Shared tested-matching rules — the single source of truth for "has this
+// user tested this candidate", used by both the testers-only vote gate
+// (checkTestedAll) and the public leaderboard's per-voter tested counts so
+// the two can never drift. A candidate counts as tested when its slug
+// matches an active_apps[].slug OR (fallback) its name matches an
+// active_apps[].name — the two platform feeds don't always agree on slug.
+function testedSetsFromFeedItem(item) {
+  const apps = Array.isArray(item && item.active_apps) ? item.active_apps : [];
+  return {
+    slugs: new Set(apps.map((a) => norm(a && a.slug)).filter(Boolean)),
+    names: new Set(apps.map((a) => norm(a && a.name)).filter(Boolean)),
+  };
+}
+// `cand` is { slug, name }, both already norm()ed (either may be '').
+function candidateTested(cand, sets) {
+  return sets.slugs.has(cand.slug) || (!!cand.name && sets.names.has(cand.name));
 }
 
 // Eligibility check for require_tested_all rounds. `requiredCands` is the set
@@ -219,11 +254,9 @@ async function checkTestedAll(user, requiredCands, opts = {}) {
     return { eligible: false, missing: required.map((c) => c.slug), unverifiable: false };
   }
 
-  const apps = Array.isArray(me.active_apps) ? me.active_apps : [];
-  const testedSlugs = new Set(apps.map((a) => norm(a && a.slug)).filter(Boolean));
-  const testedNames = new Set(apps.map((a) => norm(a && a.name)).filter(Boolean));
+  const sets = testedSetsFromFeedItem(me);
   const missing = required
-    .filter((c) => !(testedSlugs.has(c.slug) || (c.name && testedNames.has(c.name))))
+    .filter((c) => !candidateTested(c, sets))
     .map((c) => c.slug);
   return { eligible: missing.length === 0, missing, unverifiable: false };
 }
@@ -436,12 +469,56 @@ app.get('/api/leaderboard', async (req, res) => {
       [round.id, limit, offset]
     );
 
-    const voters = rows.map((r) => ({
-      user_id: r.user_id,
-      username: r.username,
-      votes_cast: r.votes_cast,
-      votes_remaining: Math.max(0, round.votes_per_voter - r.votes_cast),
-    }));
+    // Per-voter tested progress, sourced from the platform leaderboard feed
+    // (the same source the testers-only vote gate trusts — no self-reporting).
+    // Feed failure must never break the endpoint: voting numbers keep flowing
+    // and apps_tested degrades to null with tested_source: 'unavailable'.
+    const candidates = await loadCandidates(round.id);
+    const appsTotal = candidates.length;
+    const candKeys = candidates.map((c) => ({ slug: norm(c.app_slug), name: norm(c.app_name) }));
+
+    let feed = null;
+    try {
+      feed = await fetchLeaderboardCached();
+    } catch (err) {
+      if (IS_STAGING) feed = STAGING_FALLBACK_LEADERBOARD;
+    }
+
+    // Index the feed once per request. Primary match is the shared platform
+    // user id (votes.voter_user_id); normalized username is the safety net.
+    const byUserId = new Map();
+    const byUsername = new Map();
+    if (feed) {
+      for (const it of feed) {
+        if (!it) continue;
+        if (it.user_id != null && !byUserId.has(it.user_id)) byUserId.set(it.user_id, it);
+        const un = norm(it.username);
+        if (un && !byUsername.has(un)) byUsername.set(un, it);
+      }
+    }
+
+    const voters = rows.map((r) => {
+      // The feed omits zero-activity users (include_0_values=0), so "not in
+      // the feed" genuinely means "no recorded tested apps" → 0, not null.
+      let appsTested = null;
+      if (feed) {
+        appsTested = 0;
+        const item = byUserId.get(r.user_id) || byUsername.get(norm(r.username));
+        if (item) {
+          const sets = testedSetsFromFeedItem(item);
+          appsTested = candKeys.filter((c) => candidateTested(c, sets)).length;
+        }
+      }
+      return {
+        user_id: r.user_id,
+        username: r.username,
+        votes_cast: r.votes_cast,
+        votes_remaining: Math.max(0, round.votes_per_voter - r.votes_cast),
+        votes_total: round.votes_per_voter,
+        apps_tested: appsTested,
+        apps_total: appsTotal,
+      };
+    });
 
     res.json({
       round: {
@@ -450,11 +527,13 @@ app.get('/api/leaderboard', async (req, res) => {
         status: round.status,
         votes_per_voter: round.votes_per_voter,
         max_votes_per_app: round.max_votes_per_app,
+        apps_total: appsTotal,
       },
       voters,
       count,
       limit,
       offset,
+      tested_source: feed ? 'platform-leaderboard' : 'unavailable',
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1667,10 +1746,14 @@ async function seedStaging() {
   //    with ballots deliberately leaving a spread of unspent votes so the
   //    votes_remaining math is visible: voter-1 cast 1 (remaining 2),
   //    voter-2 cast 2 (remaining 1), voter-3 cast 3 (remaining 0).
+  //    Candidates reuse the fallback directory identities (Alpha/Bravo/Charlie)
+  //    so the per-voter apps_tested counts also spread against
+  //    STAGING_FALLBACK_LEADERBOARD: voter-1 tested Alpha → 1/3, voter-2
+  //    tested Alpha+Bravo → 2/3, voter-3 isn't in the feed → 0/3.
   await seedRound({
     slug: 'staging-voting-progress',
     title: 'Staging demo — Voting In Progress 🗳️',
-    description: 'Open round with partial ballots — watch unspent votes via the public leaderboard API. 📊',
+    description: 'Open round with partial ballots — watch unspent votes and tested progress via the public leaderboard API. 📊',
     creator_user_id: 900001,
     creator_username: 'staging-demo-host',
     audience: 'everyone',
@@ -1678,11 +1761,14 @@ async function seedStaging() {
     max_votes_per_app: 2,
     status: 'open',
     candidates: [
-      { app_name: 'Staging demo Progress App One', owner_username: 'staging-demo-maker-1',
+      { app_name: 'Staging demo App Alpha', app_url: appUrlFromSlug('staging-demo-alpha'), owner_username: 'staging-demo-maker-1',
+        external_app_id: 990001, app_slug: 'staging-demo-alpha',
         contributors: [{ user_id: 900101, username: 'staging-demo-maker-1' }] },
-      { app_name: 'Staging demo Progress App Two', owner_username: 'staging-demo-maker-2',
+      { app_name: 'Staging demo App Bravo', app_url: appUrlFromSlug('staging-demo-bravo'), owner_username: 'staging-demo-maker-2',
+        external_app_id: 990002, app_slug: 'staging-demo-bravo',
         contributors: [{ user_id: 900102, username: 'staging-demo-maker-2' }] },
-      { app_name: 'Staging demo Progress App Three', owner_username: 'staging-demo-maker-3',
+      { app_name: 'Staging demo App Charlie', app_url: appUrlFromSlug('staging-demo-charlie'), owner_username: 'staging-demo-maker-3',
+        external_app_id: 990003, app_slug: 'staging-demo-charlie',
         contributors: [{ user_id: 900103, username: 'staging-demo-maker-3' }] },
     ],
     ballots: [
