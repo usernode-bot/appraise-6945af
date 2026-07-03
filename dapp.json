@@ -95,6 +95,11 @@
       "expectText": "votes_remaining"
     },
     {
+      "name": "Public leaderboard tested progress",
+      "path": "/api/leaderboard?round=staging-voting-progress",
+      "expectText": "apps_tested"
+    },
+    {
       "name": "Vote distribution control present",
       "path": "/create",
       "expectText": "Vote distribution"
