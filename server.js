@@ -501,17 +501,26 @@ app.get('/api/leaderboard', async (req, res) => {
       // The feed omits zero-activity users (include_0_values=0), so "not in
       // the feed" genuinely means "no recorded tested apps" → 0, not null.
       let appsTested = null;
+      // usernode_pubkey (ut1…) is the platform wallet address linked to this
+      // voter, sourced from the same feed item used for tested-progress
+      // matching (item.address lines up with req.user.usernode_pubkey — see
+      // the LEADERBOARD_URL comment above). Null when unlinked or the feed
+      // is unavailable — never omitted, so external consumers can rely on
+      // the key always being present.
+      let usernodePubkey = null;
       if (feed) {
         appsTested = 0;
         const item = byUserId.get(r.user_id) || byUsername.get(norm(r.username));
         if (item) {
           const sets = testedSetsFromFeedItem(item);
           appsTested = candKeys.filter((c) => candidateTested(c, sets)).length;
+          usernodePubkey = item.address || null;
         }
       }
       return {
         user_id: r.user_id,
         username: r.username,
+        usernode_pubkey: usernodePubkey,
         votes_cast: r.votes_cast,
         votes_remaining: Math.max(0, round.votes_per_voter - r.votes_cast),
         votes_total: round.votes_per_voter,
