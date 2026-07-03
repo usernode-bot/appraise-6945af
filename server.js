@@ -498,17 +498,32 @@ app.get('/api/leaderboard', async (req, res) => {
     }
 
     const voters = rows.map((r) => {
+      // Resolve the voter's feed item once: primary match on the shared
+      // platform user id, normalized username as the safety net. Both the
+      // per-voter tested count and the wallet address read from this same row,
+      // so they can never describe different users.
+      const item = feed
+        ? (byUserId.get(r.user_id) || byUsername.get(norm(r.username)))
+        : null;
+
       // The feed omits zero-activity users (include_0_values=0), so "not in
       // the feed" genuinely means "no recorded tested apps" → 0, not null.
       let appsTested = null;
       if (feed) {
         appsTested = 0;
-        const item = byUserId.get(r.user_id) || byUsername.get(norm(r.username));
         if (item) {
           const sets = testedSetsFromFeedItem(item);
           appsTested = candKeys.filter((c) => candidateTested(c, sets)).length;
         }
       }
+
+      // Public wallet address (ut1…) sourced from the same feed row. Returned
+      // as the feed provides it (trimmed), not norm()ed — this is a value to
+      // display, not a match key. null when no feed item resolved (voter not in
+      // the feed, or the feed was unavailable).
+      const rawAddr = item && item.address != null ? String(item.address).trim() : '';
+      const walletAddress = rawAddr || null;
+
       return {
         user_id: r.user_id,
         username: r.username,
@@ -517,6 +532,7 @@ app.get('/api/leaderboard', async (req, res) => {
         votes_total: round.votes_per_voter,
         apps_tested: appsTested,
         apps_total: appsTotal,
+        wallet_address: walletAddress,
       };
     });
 
