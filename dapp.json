@@ -137,6 +137,26 @@
       "name": "Builders API round filter",
       "path": "/api/builders?round=staging-fav-dev-tools&limit=200&offset=0",
       "expectText": "staging-demo-maker-1"
+    },
+    {
+      "name": "Voting results API",
+      "path": "/api/results?round=staging-fav-dev-tools",
+      "expectText": "voter_count"
+    },
+    {
+      "name": "Voting results API default round",
+      "path": "/api/results",
+      "expectText": "total_votes"
+    },
+    {
+      "name": "Voting results API closed round",
+      "path": "/api/results?round=staging-best-game",
+      "expectText": "closed"
+    },
+    {
+      "name": "Voting results API with builders",
+      "path": "/api/results?round=staging-fav-dev-tools&include_builders=1",
+      "expectText": "nb_prs"
     }
   ],
   "visibility": {

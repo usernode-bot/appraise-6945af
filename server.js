@@ -12,7 +12,7 @@ const IS_STAGING = process.env.USERNODE_ENV === 'staging';
 // Paths that stay open without authentication. Add a path here (and add it
 // with `app.get`/`app.post` below) if you deliberately want it public.
 // Everything else requires a valid platform-issued JWT.
-const PUBLIC_API_PATHS = new Set(['/health', '/api/leaderboard', '/api/user_testing', '/api/builders']);
+const PUBLIC_API_PATHS = new Set(['/health', '/api/leaderboard', '/api/user_testing', '/api/builders', '/api/results']);
 const PUBLIC_PREFIXES = ['/explorer-api/'];
 
 app.use(express.json());
@@ -705,6 +705,116 @@ app.get('/api/apps', async (req, res) => {
   }
 });
 
+// Shared row builder for /api/builders and /api/results: fetch the public
+// app directory (staging fallback), optionally narrow to a round's
+// snapshotted candidates, and emit one row per (builder, app) pair
+// enriched with nb_prs + fallback wallet address from the platform
+// leaderboard. Throws when the directory is unreachable in production —
+// callers decide whether that's a 502 (/api/builders) or a degraded
+// builders:null section (/api/results). A leaderboard failure never
+// throws: nb_prs degrades to 0 with nbPrsSource 'unavailable'.
+async function buildBuilderRows(candidates) {
+  let apps;
+  let source = 'platform';
+  try {
+    apps = await fetchDirectoryAppsCached();
+  } catch (err) {
+    if (!IS_STAGING) throw err;
+    apps = STAGING_FALLBACK_APPS;
+    source = 'staging-fallback';
+  }
+
+  // Round filter: keep directory apps matching the round's snapshotted
+  // candidates by external_app_id, then normalized slug, then normalized
+  // name (the name fallback matters — candidates created before slug
+  // snapshotting have null external_app_id/app_slug). No match → empty
+  // result, not an error.
+  if (candidates) {
+    const candIds = new Set();
+    const candSlugs = new Set();
+    const candNames = new Set();
+    for (const c of candidates) {
+      const eid = parseInt(c.external_app_id, 10);
+      if (Number.isFinite(eid)) candIds.add(eid);
+      const s = norm(c.app_slug);
+      if (s) candSlugs.add(s);
+      const n = norm(c.app_name);
+      if (n) candNames.add(n);
+    }
+    apps = apps.filter((a) => {
+      const id = Number(a && a.id);
+      if (Number.isFinite(id) && candIds.has(id)) return true;
+      const s = norm(a && a.slug);
+      if (s && candSlugs.has(s)) return true;
+      const n = norm(a && a.name);
+      return !!n && candNames.has(n);
+    });
+  }
+
+  // Leaderboard enrichment (nb_prs + fallback wallet address). A feed
+  // failure must not sink the caller — the contributor list is still
+  // valid; degrade nb_prs to 0 and flag it.
+  let nbPrsSource = 'platform-leaderboard';
+  const byUserId = new Map();
+  try {
+    const feed = IS_STAGING && source === 'staging-fallback'
+      ? STAGING_FALLBACK_LEADERBOARD
+      : await fetchLeaderboardCached();
+    for (const item of feed) {
+      const uid = parseInt(item && item.user_id, 10);
+      if (!Number.isFinite(uid)) continue;
+      byUserId.set(uid, {
+        prs_merged: Number.isFinite(Number(item.prs_merged)) ? Number(item.prs_merged) : 0,
+        address: item.address != null ? String(item.address).trim() : '',
+      });
+    }
+    if (source === 'staging-fallback') nbPrsSource = 'staging-fallback';
+  } catch (err) {
+    if (IS_STAGING) {
+      for (const item of STAGING_FALLBACK_LEADERBOARD) {
+        byUserId.set(item.user_id, {
+          prs_merged: item.prs_merged || 0,
+          address: item.address || '',
+        });
+      }
+      nbPrsSource = 'staging-fallback';
+    } else {
+      nbPrsSource = 'unavailable';
+    }
+  }
+
+  // One row per (builder, app) pair, defensively parsed like
+  // resolveDirectoryCandidates: integer user_ids from the directory only,
+  // deduped within each app.
+  const rows = [];
+  for (const a of apps) {
+    const appName = String((a && a.name) || '').trim().slice(0, 120);
+    if (!appName) continue;
+    const appSlug = String((a && a.slug) || '').trim().slice(0, 200) || null;
+    const appId = Number.isFinite(Number(a && a.id)) ? Number(a.id) : null;
+    const rawContribs = Array.isArray(a && a.contributors) ? a.contributors : [];
+    const seenU = new Set();
+    for (const c of rawContribs) {
+      const uid = parseInt(c && c.user_id, 10);
+      if (!Number.isFinite(uid) || seenU.has(uid)) continue;
+      seenU.add(uid);
+      const lb = byUserId.get(uid);
+      const dirWallet = c && c.wallet_address != null ? String(c.wallet_address).trim() : '';
+      rows.push({
+        wallet_address: dirWallet || (lb && lb.address) || null,
+        username: String((c && c.username) || '').slice(0, 80) || null,
+        user_id: uid,
+        nb_prs: lb ? lb.prs_merged : 0,
+        application: appName,
+        app_slug: appSlug,
+        app_id: appId,
+      });
+    }
+  }
+
+  return { rows, source, nbPrsSource };
+}
+
 // PUBLIC builders directory (issues #33/#35): everyone who contributed to
 // building an app in the platform's PUBLIC app directory. Unauthenticated
 // (its exact path is in PUBLIC_API_PATHS) so external admin tools can call
@@ -739,105 +849,15 @@ app.get('/api/builders', async (req, res) => {
     let offset = parseInt(req.query.offset, 10);
     if (!Number.isFinite(offset) || offset < 0) offset = 0;
 
-    let apps;
-    let source = 'platform';
+    let built;
     try {
-      apps = await fetchDirectoryAppsCached();
+      built = await buildBuilderRows(candidates);
     } catch (err) {
-      if (!IS_STAGING) {
-        return res.status(502).json({ error: "Couldn't reach the app directory — try again in a moment." });
-      }
-      apps = STAGING_FALLBACK_APPS;
-      source = 'staging-fallback';
+      // Directory unreachable in production — this endpoint has no local
+      // portion to fall back on, so it stays a 502.
+      return res.status(502).json({ error: "Couldn't reach the app directory — try again in a moment." });
     }
-
-    // Round filter: keep directory apps matching the round's snapshotted
-    // candidates by external_app_id, then normalized slug, then normalized
-    // name (the name fallback matters — candidates created before slug
-    // snapshotting have null external_app_id/app_slug). No match → empty
-    // result, not an error.
-    if (candidates) {
-      const candIds = new Set();
-      const candSlugs = new Set();
-      const candNames = new Set();
-      for (const c of candidates) {
-        const eid = parseInt(c.external_app_id, 10);
-        if (Number.isFinite(eid)) candIds.add(eid);
-        const s = norm(c.app_slug);
-        if (s) candSlugs.add(s);
-        const n = norm(c.app_name);
-        if (n) candNames.add(n);
-      }
-      apps = apps.filter((a) => {
-        const id = Number(a && a.id);
-        if (Number.isFinite(id) && candIds.has(id)) return true;
-        const s = norm(a && a.slug);
-        if (s && candSlugs.has(s)) return true;
-        const n = norm(a && a.name);
-        return !!n && candNames.has(n);
-      });
-    }
-
-    // Leaderboard enrichment (nb_prs + fallback wallet address). A feed
-    // failure must not sink the endpoint — the contributor list is still
-    // valid; degrade nb_prs to 0 and flag it.
-    let nbPrsSource = 'platform-leaderboard';
-    const byUserId = new Map();
-    try {
-      const feed = IS_STAGING && source === 'staging-fallback'
-        ? STAGING_FALLBACK_LEADERBOARD
-        : await fetchLeaderboardCached();
-      for (const item of feed) {
-        const uid = parseInt(item && item.user_id, 10);
-        if (!Number.isFinite(uid)) continue;
-        byUserId.set(uid, {
-          prs_merged: Number.isFinite(Number(item.prs_merged)) ? Number(item.prs_merged) : 0,
-          address: item.address != null ? String(item.address).trim() : '',
-        });
-      }
-      if (source === 'staging-fallback') nbPrsSource = 'staging-fallback';
-    } catch (err) {
-      if (IS_STAGING) {
-        for (const item of STAGING_FALLBACK_LEADERBOARD) {
-          byUserId.set(item.user_id, {
-            prs_merged: item.prs_merged || 0,
-            address: item.address || '',
-          });
-        }
-        nbPrsSource = 'staging-fallback';
-      } else {
-        nbPrsSource = 'unavailable';
-      }
-    }
-
-    // One row per (builder, app) pair, defensively parsed like
-    // resolveDirectoryCandidates: integer user_ids from the directory only,
-    // deduped within each app.
-    const rows = [];
-    for (const a of apps) {
-      const appName = String((a && a.name) || '').trim().slice(0, 120);
-      if (!appName) continue;
-      const appSlug = String((a && a.slug) || '').trim().slice(0, 200) || null;
-      const appId = Number.isFinite(Number(a && a.id)) ? Number(a.id) : null;
-      const rawContribs = Array.isArray(a && a.contributors) ? a.contributors : [];
-      const seenU = new Set();
-      for (const c of rawContribs) {
-        const uid = parseInt(c && c.user_id, 10);
-        if (!Number.isFinite(uid) || seenU.has(uid)) continue;
-        seenU.add(uid);
-        const lb = byUserId.get(uid);
-        const dirWallet = c && c.wallet_address != null ? String(c.wallet_address).trim() : '';
-        rows.push({
-          wallet_address: dirWallet || (lb && lb.address) || null,
-          username: String((c && c.username) || '').slice(0, 80) || null,
-          user_id: uid,
-          nb_prs: lb ? lb.prs_merged : 0,
-          application: appName,
-          app_slug: appSlug,
-          app_id: appId,
-        });
-      }
-    }
+    const { rows, source, nbPrsSource } = built;
 
     const byName = (a, b) => String(a.username || '').localeCompare(String(b.username || ''));
 
@@ -889,6 +909,115 @@ app.get('/api/builders', async (req, res) => {
       source,
       nb_prs_source: nbPrsSource,
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUBLIC voting results (issue #37): a round's status + per-app vote
+// tallies, optionally with the builders of the competing apps.
+// Unauthenticated (its exact path is in PUBLIC_API_PATHS) so external
+// admin tools can poll it — it must NOT touch req.user. ?round=<slug>
+// targets a round; with no param the "current vote" is served: the most
+// recently created OPEN public round, else the most recently created
+// public round of any status. Only 'everyone' rounds are served;
+// invite-only and unknown rounds both 404 so private rounds never leak.
+// Tallies are returned for every status — round.status tells callers
+// whether the count is partial (open/draft) or final (closed). Unlike the
+// in-app view (which hides tallies from non-voters until they vote), this
+// endpoint intentionally exposes the live tally: it exists for admin
+// monitoring and matches the admin's in-app visibility.
+// ?include_builders=1|true (default off) appends the deduped builders of
+// the round's candidate apps ({ wallet_address, username, user_id,
+// nb_prs }) from the same public feeds as /api/builders. Feed trouble
+// never sinks the results: a directory failure in production degrades
+// builders to null with builders_source 'unavailable' (staging falls back
+// to the demo apps), and a leaderboard failure degrades nb_prs to 0.
+app.get('/api/results', async (req, res) => {
+  try {
+    const slug = String(req.query.round || '').trim();
+    let round;
+    if (slug) {
+      round = await getRoundBySlug(slug);
+      // Same 404 for missing and invite-only so we don't reveal private rounds.
+      if (!round || round.audience !== 'everyone') {
+        return res.status(404).json({ error: 'Round not found.' });
+      }
+    } else {
+      const { rows } = await pool.query(
+        `SELECT * FROM rounds
+          WHERE audience = 'everyone'
+          ORDER BY (status = 'open') DESC, created_at DESC
+          LIMIT 1`
+      );
+      if (rows.length === 0) {
+        return res.status(404).json({ error: 'No voting rounds.' });
+      }
+      round = rows[0];
+    }
+
+    const candidates = await loadCandidates(round.id);
+    const t = await tallyResults(round.id);
+    const tallied = candidates
+      .map((c) => ({
+        id: c.id,
+        app_name: c.app_name,
+        app_slug: c.app_slug || null,
+        app_url: c.app_url || null,
+        votes: t.byId[c.id] || 0,
+      }))
+      .sort(
+        (a, b) =>
+          b.votes - a.votes ||
+          String(a.app_name).localeCompare(String(b.app_name))
+      );
+
+    const payload = {
+      round: publicRound(round),
+      results: {
+        voter_count: t.voterCount,
+        total_votes: tallied.reduce((sum, c) => sum + c.votes, 0),
+        candidates: tallied,
+      },
+    };
+
+    const rawInclude = String(req.query.include_builders || '').trim().toLowerCase();
+    if (rawInclude === '1' || rawInclude === 'true') {
+      try {
+        const { rows, source, nbPrsSource } = await buildBuilderRows(candidates);
+        // One entry per builder — the same person may have built several
+        // candidate apps; nb_prs is platform-wide, so collapsed rows agree.
+        const byUser = new Map();
+        for (const r of rows) {
+          if (!byUser.has(r.user_id)) {
+            byUser.set(r.user_id, {
+              wallet_address: r.wallet_address,
+              username: r.username,
+              user_id: r.user_id,
+              nb_prs: r.nb_prs,
+            });
+          }
+        }
+        const builders = [...byUser.values()].sort(
+          (a, b) =>
+            b.nb_prs - a.nb_prs ||
+            String(a.username || '').localeCompare(String(b.username || ''))
+        );
+        payload.builders = builders;
+        payload.builders_count = builders.length;
+        payload.builders_source = source;
+        payload.nb_prs_source = nbPrsSource;
+      } catch (err) {
+        // Directory unreachable in production — the vote results are still
+        // valid; degrade the builders section instead of failing.
+        payload.builders = null;
+        payload.builders_count = 0;
+        payload.builders_source = 'unavailable';
+        payload.nb_prs_source = 'unavailable';
+      }
+    }
+
+    res.json(payload);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
