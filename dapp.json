@@ -122,6 +122,16 @@
     {
       "name": "Favicon resolves without auth",
       "path": "/favicon.ico"
+    },
+    {
+      "name": "Builders API",
+      "path": "/api/builders",
+      "expectText": "nb_prs"
+    },
+    {
+      "name": "Builders API grouped by app",
+      "path": "/api/builders?by_app=1",
+      "expectText": "staging-demo-maker-1"
     }
   ],
   "visibility": {

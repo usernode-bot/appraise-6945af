@@ -86,13 +86,18 @@ const APPS_DIRECTORY_URL = 'https://social-vibecoding.usernodelabs.org/api/publi
 // line up with the staging seed makers below.
 const STAGING_FALLBACK_APPS = [
   { id: 990001, name: 'Staging demo App Alpha',   slug: 'staging-demo-alpha',
-    contributors: [{ user_id: 900101, username: 'staging-demo-maker-1', wallet_address: null }] },
+    contributors: [{ user_id: 900101, username: 'staging-demo-maker-1', wallet_address: 'ut1stagingdemomaker1' }] },
+  // maker-1 also appears on Bravo so /api/builders' multi-app-builder and
+  // grouped (?by_app=1) paths are exercisable offline.
   { id: 990002, name: 'Staging demo App Bravo',   slug: 'staging-demo-bravo',
-    contributors: [{ user_id: 900102, username: 'staging-demo-maker-2', wallet_address: null }] },
+    contributors: [
+      { user_id: 900102, username: 'staging-demo-maker-2', wallet_address: 'ut1stagingdemomaker2' },
+      { user_id: 900101, username: 'staging-demo-maker-1', wallet_address: 'ut1stagingdemomaker1' },
+    ] },
   { id: 990003, name: 'Staging demo App Charlie', slug: 'staging-demo-charlie',
-    contributors: [{ user_id: 900103, username: 'staging-demo-maker-3', wallet_address: null }] },
+    contributors: [{ user_id: 900103, username: 'staging-demo-maker-3', wallet_address: 'ut1stagingdemomaker3' }] },
   { id: 990004, name: 'Staging demo App Delta',   slug: 'staging-demo-delta',
-    contributors: [{ user_id: 900104, username: 'staging-demo-maker-4', wallet_address: null }] },
+    contributors: [{ user_id: 900104, username: 'staging-demo-maker-4', wallet_address: 'ut1stagingdemomaker4' }] },
 ];
 
 // Fetch the platform's public app directory. Throws on timeout / non-2xx /
@@ -111,6 +116,20 @@ async function fetchDirectoryApps() {
   }
 }
 
+// ~60s module-level cache of the directory, used by /api/builders — that
+// endpoint composes two remote feeds and may be polled, so don't hammer the
+// platform API on every hit. The round create/edit paths keep fetching live:
+// they snapshot contributors into a round, where a minute-stale list matters.
+let dirCache = { apps: null, at: 0 };
+async function fetchDirectoryAppsCached() {
+  if (dirCache.apps && Date.now() - dirCache.at < FEED_CACHE_TTL_MS) {
+    return dirCache.apps;
+  }
+  const apps = await fetchDirectoryApps();
+  dirCache = { apps, at: Date.now() };
+  return apps;
+}
+
 // Build a viewable link for a directory app from its slug (or null).
 function appUrlFromSlug(slug) {
   return slug ? `https://social-vibecoding.usernodelabs.org/#app/${slug}` : null;
@@ -119,9 +138,10 @@ function appUrlFromSlug(slug) {
 // Platform-wide per-user leaderboard. `active_apps[].slug` are the apps each
 // user has tested/used; `address` (ut1…) lines up with req.user.usernode_pubkey
 // and `user_id` with req.user.id. Used to gate voting on require_tested_all
-// rounds.
+// rounds. `prs_merged` feeds /api/builders' nb_prs; with include_0_values=0
+// the feed OMITS zero-valued fields, so a missing prs_merged means 0.
 const LEADERBOARD_URL =
-  'https://social-vibecoding.usernodelabs.org/api/leaderboard/users?include_0_values=0&fields=active_apps,address,user_id,username';
+  'https://social-vibecoding.usernodelabs.org/api/leaderboard/users?include_0_values=0&fields=active_apps,address,user_id,username,prs_merged';
 
 // Obviously-fake leaderboard used ONLY in staging when the live API can't be
 // reached (staging has no guaranteed outbound). Never used in production. The
@@ -137,6 +157,16 @@ const STAGING_FALLBACK_LEADERBOARD = [
       { name: 'Staging demo App Alpha', slug: 'staging-demo-alpha' },
       { name: 'Staging demo App Bravo', slug: 'staging-demo-bravo' },
     ] },
+  // The STAGING_FALLBACK_APPS makers, with distinct prs_merged values so
+  // /api/builders' nb_prs enrichment and sort order are visible offline.
+  { username: 'staging-demo-maker-1', user_id: 900101, address: 'ut1stagingdemomaker1',
+    prs_merged: 5, active_apps: [] },
+  { username: 'staging-demo-maker-2', user_id: 900102, address: 'ut1stagingdemomaker2',
+    prs_merged: 3, active_apps: [] },
+  { username: 'staging-demo-maker-3', user_id: 900103, address: 'ut1stagingdemomaker3',
+    prs_merged: 2, active_apps: [] },
+  { username: 'staging-demo-maker-4', user_id: 900104, address: 'ut1stagingdemomaker4',
+    prs_merged: 1, active_apps: [] },
 ];
 
 // Fetch the platform leaderboard. Throws on timeout / non-2xx / network error
@@ -162,12 +192,12 @@ async function fetchLeaderboard() {
   }
 }
 
-// ~60s module-level cache of the platform feed, used ONLY by the PUBLIC
-// /api/leaderboard endpoint — it's unauthenticated and may be polled by
-// third-party tools, so don't hammer the platform API on every hit. The vote
-// gate (checkTestedAll) keeps fetching live: a stale read there could wrongly
-// block (or admit) a ballot, while a minute-stale tested count in a progress
-// feed is harmless.
+// ~60s module-level cache of the platform feed, used by the PUBLIC
+// /api/leaderboard + /api/user_testing endpoints and by /api/builders — all
+// read-only stat feeds that may be polled, so don't hammer the platform API
+// on every hit. The vote gate (checkTestedAll) keeps fetching live: a stale
+// read there could wrongly block (or admit) a ballot, while a minute-stale
+// count in a progress/stats feed is harmless.
 const FEED_CACHE_TTL_MS = 60_000;
 let feedCache = { items: null, at: 0 };
 async function fetchLeaderboardCached() {
@@ -672,6 +702,128 @@ app.get('/api/apps', async (req, res) => {
       });
     }
     res.status(502).json({ error: "Couldn't reach the app directory — try again in a moment." });
+  }
+});
+
+// Builders directory (issue #33): everyone who contributed to building an
+// app in the platform's PUBLIC app directory — not just apps that appear in
+// Appraise rounds. Gated by the standard auth middleware (no PUBLIC_API_PATHS
+// change); both source feeds are public platform data. nb_prs is the
+// builder's PLATFORM-WIDE merged-PR total from the leaderboard (the platform
+// publishes no per-app PR breakdown), repeated on each app they built.
+// Default shape is one row per (builder, app) pair; ?by_app=1|true regroups
+// as applications each carrying its builders.
+app.get('/api/builders', async (req, res) => {
+  try {
+    let apps;
+    let source = 'platform';
+    try {
+      apps = await fetchDirectoryAppsCached();
+    } catch (err) {
+      if (!IS_STAGING) {
+        return res.status(502).json({ error: "Couldn't reach the app directory — try again in a moment." });
+      }
+      apps = STAGING_FALLBACK_APPS;
+      source = 'staging-fallback';
+    }
+
+    // Leaderboard enrichment (nb_prs + fallback wallet address). A feed
+    // failure must not sink the endpoint — the contributor list is still
+    // valid; degrade nb_prs to 0 and flag it.
+    let nbPrsSource = 'platform-leaderboard';
+    const byUserId = new Map();
+    try {
+      const feed = IS_STAGING && source === 'staging-fallback'
+        ? STAGING_FALLBACK_LEADERBOARD
+        : await fetchLeaderboardCached();
+      for (const item of feed) {
+        const uid = parseInt(item && item.user_id, 10);
+        if (!Number.isFinite(uid)) continue;
+        byUserId.set(uid, {
+          prs_merged: Number.isFinite(Number(item.prs_merged)) ? Number(item.prs_merged) : 0,
+          address: item.address != null ? String(item.address).trim() : '',
+        });
+      }
+      if (source === 'staging-fallback') nbPrsSource = 'staging-fallback';
+    } catch (err) {
+      if (IS_STAGING) {
+        for (const item of STAGING_FALLBACK_LEADERBOARD) {
+          byUserId.set(item.user_id, {
+            prs_merged: item.prs_merged || 0,
+            address: item.address || '',
+          });
+        }
+        nbPrsSource = 'staging-fallback';
+      } else {
+        nbPrsSource = 'unavailable';
+      }
+    }
+
+    // One row per (builder, app) pair, defensively parsed like
+    // resolveDirectoryCandidates: integer user_ids from the directory only,
+    // deduped within each app.
+    const rows = [];
+    for (const a of apps) {
+      const appName = String((a && a.name) || '').trim().slice(0, 120);
+      if (!appName) continue;
+      const appSlug = String((a && a.slug) || '').trim().slice(0, 200) || null;
+      const appId = Number.isFinite(Number(a && a.id)) ? Number(a.id) : null;
+      const rawContribs = Array.isArray(a && a.contributors) ? a.contributors : [];
+      const seenU = new Set();
+      for (const c of rawContribs) {
+        const uid = parseInt(c && c.user_id, 10);
+        if (!Number.isFinite(uid) || seenU.has(uid)) continue;
+        seenU.add(uid);
+        const lb = byUserId.get(uid);
+        const dirWallet = c && c.wallet_address != null ? String(c.wallet_address).trim() : '';
+        rows.push({
+          wallet_address: dirWallet || (lb && lb.address) || null,
+          username: String((c && c.username) || '').slice(0, 80) || null,
+          user_id: uid,
+          nb_prs: lb ? lb.prs_merged : 0,
+          application: appName,
+          app_slug: appSlug,
+          app_id: appId,
+        });
+      }
+    }
+
+    const byName = (a, b) => String(a.username || '').localeCompare(String(b.username || ''));
+
+    const rawByApp = String(req.query.by_app || '').trim().toLowerCase();
+    if (rawByApp === '1' || rawByApp === 'true') {
+      const byApp = new Map();
+      for (const r of rows) {
+        const key = `${r.app_id}::${r.application}`;
+        if (!byApp.has(key)) {
+          byApp.set(key, { application: r.application, app_slug: r.app_slug, app_id: r.app_id, builders: [] });
+        }
+        byApp.get(key).builders.push({
+          wallet_address: r.wallet_address,
+          username: r.username,
+          user_id: r.user_id,
+          nb_prs: r.nb_prs,
+        });
+      }
+      const applications = [...byApp.values()].sort((a, b) =>
+        String(a.application).localeCompare(String(b.application))
+      );
+      for (const appEntry of applications) {
+        appEntry.builders.sort((a, b) => b.nb_prs - a.nb_prs || byName(a, b));
+        appEntry.builder_count = appEntry.builders.length;
+      }
+      return res.json({ applications, count: rows.length, source, nb_prs_source: nbPrsSource });
+    }
+
+    rows.sort(
+      (a, b) =>
+        b.nb_prs - a.nb_prs ||
+        byName(a, b) ||
+        String(a.application).localeCompare(String(b.application))
+    );
+    res.json({ builders: rows, count: rows.length, source, nb_prs_source: nbPrsSource });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
