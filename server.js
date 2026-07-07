@@ -12,7 +12,7 @@ const IS_STAGING = process.env.USERNODE_ENV === 'staging';
 // Paths that stay open without authentication. Add a path here (and add it
 // with `app.get`/`app.post` below) if you deliberately want it public.
 // Everything else requires a valid platform-issued JWT.
-const PUBLIC_API_PATHS = new Set(['/health', '/api/leaderboard']);
+const PUBLIC_API_PATHS = new Set(['/health', '/api/leaderboard', '/api/user_testing']);
 const PUBLIC_PREFIXES = ['/explorer-api/'];
 
 app.use(express.json());
@@ -550,6 +550,107 @@ app.get('/api/leaderboard', async (req, res) => {
       limit,
       offset,
       tested_source: feed ? 'platform-leaderboard' : 'unavailable',
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUBLIC, read-only user-testing statistics (issue #31). Unauthenticated
+// (its exact path is in PUBLIC_API_PATHS) so admin tools can poll it — it
+// must NOT touch req.user. Lists every platform-leaderboard user who has
+// tested at least one app in the voting scope: ?round=<slug> targets one
+// public round (any status), no param means the union of all currently open
+// public rounds. Serves only 'everyone' rounds; invite-only and unknown
+// rounds both 404 so private rounds never leak. "Tested" reuses the shared
+// match rules (testedSetsFromFeedItem / candidateTested) so this endpoint
+// can never disagree with the testers-only vote gate or /api/leaderboard.
+app.get('/api/user_testing', async (req, res) => {
+  try {
+    const slug = String(req.query.round || '').trim();
+    let rounds;
+    if (slug) {
+      const round = await getRoundBySlug(slug);
+      // Same 404 for missing and invite-only so we don't reveal private rounds.
+      if (!round || round.audience !== 'everyone') {
+        return res.status(404).json({ error: 'Round not found.' });
+      }
+      rounds = [round];
+    } else {
+      const { rows } = await pool.query(
+        `SELECT * FROM rounds
+          WHERE audience = 'everyone' AND status = 'open'
+          ORDER BY created_at DESC`
+      );
+      if (rows.length === 0) {
+        return res.status(404).json({ error: 'No open voting rounds.' });
+      }
+      rounds = rows;
+    }
+
+    // Candidate match keys across the scope, de-duplicated by normalized
+    // slug (fallback: normalized name) so an app appearing in several open
+    // rounds counts once toward total_tested_apps / apps_total. Candidates
+    // with neither a matchable slug nor name can never count as tested.
+    const candKeys = [];
+    const seenKeys = new Set();
+    for (const round of rounds) {
+      for (const c of await loadCandidates(round.id)) {
+        const key = { slug: norm(c.app_slug), name: norm(c.app_name) };
+        const dedupe = key.slug || key.name;
+        if (!dedupe || seenKeys.has(dedupe)) continue;
+        seenKeys.add(dedupe);
+        candKeys.push(key);
+      }
+    }
+
+    // The entire payload derives from the platform feed — unlike
+    // /api/leaderboard there's no local-DB portion to degrade to, so a
+    // production feed failure is a 503, and staging falls back to the fake
+    // leaderboard so the endpoint stays exercisable offline.
+    let feed;
+    let testedSource = 'platform-leaderboard';
+    try {
+      feed = await fetchLeaderboardCached();
+    } catch (err) {
+      if (!IS_STAGING) {
+        return res.status(503).json({
+          error: "Couldn't reach the platform leaderboard — try again in a moment.",
+        });
+      }
+      feed = STAGING_FALLBACK_LEADERBOARD;
+      testedSource = 'staging-fallback';
+    }
+
+    const users = [];
+    for (const item of feed) {
+      if (!item) continue;
+      const sets = testedSetsFromFeedItem(item);
+      const totalTested = candKeys.filter((c) => candidateTested(c, sets)).length;
+      if (totalTested < 1) continue;
+      // Public wallet address (ut1…): trimmed display value, not a match
+      // key. null when the feed row carries no address — users without a
+      // linked wallet still appear so the tester count stays honest.
+      const rawAddr = item.address != null ? String(item.address).trim() : '';
+      users.push({
+        wallet_address: rawAddr || null,
+        total_tested_apps: totalTested,
+        user_id: item.user_id != null ? item.user_id : null,
+        username: item.username != null ? String(item.username) : null,
+      });
+    }
+    users.sort(
+      (a, b) =>
+        b.total_tested_apps - a.total_tested_apps ||
+        String(a.username || '').localeCompare(String(b.username || ''))
+    );
+
+    res.json({
+      rounds: rounds.map((r) => ({ slug: r.slug, title: r.title, status: r.status })),
+      apps_total: candKeys.length,
+      users,
+      count: users.length,
+      tested_source: testedSource,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
