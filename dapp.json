@@ -100,6 +100,11 @@
       "expectText": "apps_tested"
     },
     {
+      "name": "User testing stats API",
+      "path": "/api/user_testing?round=staging-voting-progress",
+      "expectText": "tested_source"
+    },
+    {
       "name": "Vote distribution control present",
       "path": "/create",
       "expectText": "Vote distribution"
