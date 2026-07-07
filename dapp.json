@@ -157,6 +157,11 @@
       "name": "Voting results API with builders",
       "path": "/api/results?round=staging-fav-dev-tools&include_builders=1",
       "expectText": "nb_prs"
+    },
+    {
+      "name": "Voting results API nests builders per app",
+      "path": "/api/results?round=staging-fav-dev-tools&include_builders=1",
+      "expectText": "builder_count"
     }
   ],
   "visibility": {

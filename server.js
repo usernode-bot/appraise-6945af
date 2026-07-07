@@ -927,12 +927,20 @@ app.get('/api/builders', async (req, res) => {
 // in-app view (which hides tallies from non-voters until they vote), this
 // endpoint intentionally exposes the live tally: it exists for admin
 // monitoring and matches the admin's in-app visibility.
-// ?include_builders=1|true (default off) appends the deduped builders of
-// the round's candidate apps ({ wallet_address, username, user_id,
-// nb_prs }) from the same public feeds as /api/builders. Feed trouble
-// never sinks the results: a directory failure in production degrades
-// builders to null with builders_source 'unavailable' (staging falls back
-// to the demo apps), and a leaderboard failure degrades nb_prs to 0.
+// ?include_builders=1|true (default off) nests each app's builders UNDER
+// that app (issue #39): every results.candidates[] entry gains `builders`
+// ({ wallet_address, username, user_id, nb_prs }, sorted nb_prs desc then
+// username asc — same ordering as /api/builders?by_app=1) plus
+// `builder_count`, from the same public feeds as /api/builders. Rows are
+// matched back to candidates by external_app_id, then normalized slug,
+// then normalized name (the precedence buildBuilderRows itself uses);
+// candidates with no directory match get builders: []. A builder who
+// worked on several candidate apps appears under each — nb_prs is
+// platform-wide, so the repeated entries always agree. Feed trouble never
+// sinks the results: a directory failure in production degrades every
+// candidate's builders to null with builders_source 'unavailable'
+// (staging falls back to the demo apps), and a leaderboard failure
+// degrades nb_prs to 0.
 app.get('/api/results', async (req, res) => {
   try {
     const slug = String(req.query.round || '').trim();
@@ -985,33 +993,56 @@ app.get('/api/results', async (req, res) => {
     if (rawInclude === '1' || rawInclude === 'true') {
       try {
         const { rows, source, nbPrsSource } = await buildBuilderRows(candidates);
-        // One entry per builder — the same person may have built several
-        // candidate apps; nb_prs is platform-wide, so collapsed rows agree.
-        const byUser = new Map();
-        for (const r of rows) {
-          if (!byUser.has(r.user_id)) {
-            byUser.set(r.user_id, {
-              wallet_address: r.wallet_address,
-              username: r.username,
-              user_id: r.user_id,
-              nb_prs: r.nb_prs,
-            });
-          }
+        // Match each (builder, app) row back to a candidate id with the same
+        // precedence buildBuilderRows used to filter the directory:
+        // external_app_id, then normalized slug, then normalized name.
+        const candByExtId = new Map();
+        const candBySlug = new Map();
+        const candByName = new Map();
+        for (const c of candidates) {
+          const eid = parseInt(c.external_app_id, 10);
+          if (Number.isFinite(eid) && !candByExtId.has(eid)) candByExtId.set(eid, c.id);
+          const s = norm(c.app_slug);
+          if (s && !candBySlug.has(s)) candBySlug.set(s, c.id);
+          const n = norm(c.app_name);
+          if (n && !candByName.has(n)) candByName.set(n, c.id);
         }
-        const builders = [...byUser.values()].sort(
-          (a, b) =>
-            b.nb_prs - a.nb_prs ||
-            String(a.username || '').localeCompare(String(b.username || ''))
-        );
-        payload.builders = builders;
-        payload.builders_count = builders.length;
+        const buildersByCand = new Map();
+        for (const r of rows) {
+          const appId = Number(r.app_id);
+          let candId = Number.isFinite(appId) ? candByExtId.get(appId) : undefined;
+          if (candId == null) candId = candBySlug.get(norm(r.app_slug));
+          if (candId == null) candId = candByName.get(norm(r.application));
+          if (candId == null) continue;
+          if (!buildersByCand.has(candId)) buildersByCand.set(candId, []);
+          buildersByCand.get(candId).push({
+            wallet_address: r.wallet_address,
+            username: r.username,
+            user_id: r.user_id,
+            nb_prs: r.nb_prs,
+          });
+        }
+        // Nest under each app entry. A builder on several candidate apps
+        // appears under each; nb_prs is platform-wide, so the copies agree.
+        for (const entry of tallied) {
+          const list = buildersByCand.get(entry.id) || [];
+          list.sort(
+            (a, b) =>
+              b.nb_prs - a.nb_prs ||
+              String(a.username || '').localeCompare(String(b.username || ''))
+          );
+          entry.builders = list;
+          entry.builder_count = list.length;
+        }
         payload.builders_source = source;
         payload.nb_prs_source = nbPrsSource;
       } catch (err) {
         // Directory unreachable in production — the vote results are still
-        // valid; degrade the builders section instead of failing.
-        payload.builders = null;
-        payload.builders_count = 0;
+        // valid; degrade each app's builders section instead of failing.
+        for (const entry of tallied) {
+          entry.builders = null;
+          entry.builder_count = 0;
+        }
         payload.builders_source = 'unavailable';
         payload.nb_prs_source = 'unavailable';
       }
