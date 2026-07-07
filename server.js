@@ -12,7 +12,7 @@ const IS_STAGING = process.env.USERNODE_ENV === 'staging';
 // Paths that stay open without authentication. Add a path here (and add it
 // with `app.get`/`app.post` below) if you deliberately want it public.
 // Everything else requires a valid platform-issued JWT.
-const PUBLIC_API_PATHS = new Set(['/health', '/api/leaderboard', '/api/user_testing']);
+const PUBLIC_API_PATHS = new Set(['/health', '/api/leaderboard', '/api/user_testing', '/api/builders']);
 const PUBLIC_PREFIXES = ['/explorer-api/'];
 
 app.use(express.json());
@@ -705,16 +705,40 @@ app.get('/api/apps', async (req, res) => {
   }
 });
 
-// Builders directory (issue #33): everyone who contributed to building an
-// app in the platform's PUBLIC app directory — not just apps that appear in
-// Appraise rounds. Gated by the standard auth middleware (no PUBLIC_API_PATHS
-// change); both source feeds are public platform data. nb_prs is the
-// builder's PLATFORM-WIDE merged-PR total from the leaderboard (the platform
-// publishes no per-app PR breakdown), repeated on each app they built.
+// PUBLIC builders directory (issues #33/#35): everyone who contributed to
+// building an app in the platform's PUBLIC app directory. Unauthenticated
+// (its exact path is in PUBLIC_API_PATHS) so external admin tools can call
+// it — it must NOT touch req.user. Both source feeds are public platform
+// data. Optional ?round=<slug> narrows to that round's candidate apps —
+// only 'everyone' rounds are served; invite-only and unknown rounds both
+// 404 so private rounds never leak (same rule as /api/leaderboard).
+// ?limit=/&offset= page the returned array (default 100, max 500). nb_prs
+// is the builder's PLATFORM-WIDE merged-PR total from the leaderboard (the
+// platform publishes no per-app or per-round PR breakdown), repeated on
+// each app they built — it stays platform-wide even when round-filtered.
 // Default shape is one row per (builder, app) pair; ?by_app=1|true regroups
 // as applications each carrying its builders.
 app.get('/api/builders', async (req, res) => {
   try {
+    // Optional round filter, resolved before the feeds so an invalid round
+    // 404s cheaply. Same 404 for missing and invite-only rounds.
+    const roundSlug = String(req.query.round || '').trim();
+    let candidates = null;
+    if (roundSlug) {
+      const round = await getRoundBySlug(roundSlug);
+      if (!round || round.audience !== 'everyone') {
+        return res.status(404).json({ error: 'Round not found.' });
+      }
+      candidates = await loadCandidates(round.id);
+    }
+
+    let limit = parseInt(req.query.limit, 10);
+    if (!Number.isFinite(limit)) limit = 100;
+    if (limit < 1) limit = 1;
+    if (limit > 500) limit = 500;
+    let offset = parseInt(req.query.offset, 10);
+    if (!Number.isFinite(offset) || offset < 0) offset = 0;
+
     let apps;
     let source = 'platform';
     try {
@@ -725,6 +749,33 @@ app.get('/api/builders', async (req, res) => {
       }
       apps = STAGING_FALLBACK_APPS;
       source = 'staging-fallback';
+    }
+
+    // Round filter: keep directory apps matching the round's snapshotted
+    // candidates by external_app_id, then normalized slug, then normalized
+    // name (the name fallback matters — candidates created before slug
+    // snapshotting have null external_app_id/app_slug). No match → empty
+    // result, not an error.
+    if (candidates) {
+      const candIds = new Set();
+      const candSlugs = new Set();
+      const candNames = new Set();
+      for (const c of candidates) {
+        const eid = parseInt(c.external_app_id, 10);
+        if (Number.isFinite(eid)) candIds.add(eid);
+        const s = norm(c.app_slug);
+        if (s) candSlugs.add(s);
+        const n = norm(c.app_name);
+        if (n) candNames.add(n);
+      }
+      apps = apps.filter((a) => {
+        const id = Number(a && a.id);
+        if (Number.isFinite(id) && candIds.has(id)) return true;
+        const s = norm(a && a.slug);
+        if (s && candSlugs.has(s)) return true;
+        const n = norm(a && a.name);
+        return !!n && candNames.has(n);
+      });
     }
 
     // Leaderboard enrichment (nb_prs + fallback wallet address). A feed
@@ -812,7 +863,16 @@ app.get('/api/builders', async (req, res) => {
         appEntry.builders.sort((a, b) => b.nb_prs - a.nb_prs || byName(a, b));
         appEntry.builder_count = appEntry.builders.length;
       }
-      return res.json({ applications, count: rows.length, source, nb_prs_source: nbPrsSource });
+      // count stays the pre-pagination (builder, app) row total; limit/offset
+      // page the top-level array being returned — applications here.
+      return res.json({
+        applications: applications.slice(offset, offset + limit),
+        count: rows.length,
+        limit,
+        offset,
+        source,
+        nb_prs_source: nbPrsSource,
+      });
     }
 
     rows.sort(
@@ -821,7 +881,14 @@ app.get('/api/builders', async (req, res) => {
         byName(a, b) ||
         String(a.application).localeCompare(String(b.application))
     );
-    res.json({ builders: rows, count: rows.length, source, nb_prs_source: nbPrsSource });
+    res.json({
+      builders: rows.slice(offset, offset + limit),
+      count: rows.length,
+      limit,
+      offset,
+      source,
+      nb_prs_source: nbPrsSource,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
