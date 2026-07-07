@@ -132,6 +132,11 @@
       "name": "Builders API grouped by app",
       "path": "/api/builders?by_app=1",
       "expectText": "staging-demo-maker-1"
+    },
+    {
+      "name": "Builders API round filter",
+      "path": "/api/builders?round=staging-fav-dev-tools&limit=200&offset=0",
+      "expectText": "staging-demo-maker-1"
     }
   ],
   "visibility": {
