@@ -1042,7 +1042,7 @@
           try {
             await api('/api/rounds/' + slug + '/vote', { method: 'POST', body: JSON.stringify({ allocation }) });
             confetti(160);
-            toast('Ballot submitted! 🥳 results unlocked');
+            toast('Ballot submitted! 🥳 locked in');
             renderDetail(root, slug);
           } catch (e) {
             $('#v-err', body).textContent = '💢 ' + e.message;
@@ -1104,7 +1104,7 @@
           const voted = document.createElement('div');
           voted.className = 'neon-card rounded-2xl p-4 mb-4 comic text-center text-emerald-200';
           voted.innerHTML = `🗳️ You already voted.
-            <div class="text-zinc-300 mt-2 text-sm">Your ballot's locked in — results are below. 🎉</div>`;
+            <div class="text-zinc-300 mt-2 text-sm">Your ballot's locked in — results unlock when the round closes. 🎉</div>`;
           body.insertBefore(voted, body.firstChild);
         }
       } else if (r.status === 'draft') {
@@ -1141,10 +1141,12 @@
               </div>`).join('')}
           </div>`;
         body.appendChild(panel);
-      } else if (r.status === 'open' && !d.isCreator) {
+      } else {
+        // No results in the payload means the server hasn't revealed them:
+        // the round is still running and the viewer isn't an admin.
         const note = document.createElement('div');
         note.className = 'comic text-center text-zinc-400 mt-6';
-        note.textContent = '🙈 Results are hidden until you cast your ballot — vote first!';
+        note.textContent = '🙈 Results are hidden until the round closes.';
         body.appendChild(note);
       }
 

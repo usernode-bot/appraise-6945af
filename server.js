@@ -83,6 +83,16 @@ function isAdmin(user) {
   return ADMIN_USERNAMES.has(norm(user.username));
 }
 
+// Are a round's per-app vote tallies revealed to this viewer (issue #26)?
+// One rule, used by every surface that returns tallies: the round has ended,
+// or the viewer is an admin (admins manage rounds and need the live tally).
+// Deliberately NOT unlocked by being the creator or by having voted — a
+// partial tally is a signal that steers later ballots. `user` may be null
+// (the unauthenticated public feed), which lands on the hidden branch.
+function resultsRevealed(round, user) {
+  return round.status === 'closed' || isAdmin(user);
+}
+
 // Platform public app directory — source of candidate apps + their
 // contributors. Snapshotted into a round at creation time.
 const APPS_DIRECTORY_URL = 'https://social-vibecoding.usernodelabs.org/api/public/apps';
@@ -924,16 +934,23 @@ app.get('/api/builders', async (req, res) => {
 // PUBLIC voting results (issue #37): a round's status + per-app vote
 // tallies, optionally with the builders of the competing apps.
 // Unauthenticated (its exact path is in PUBLIC_API_PATHS) so external
-// admin tools can poll it — it must NOT touch req.user. ?round=<slug>
-// targets a round; with no param the "current vote" is served: the most
-// recently created OPEN public round, else the most recently created
-// public round of any status. Only 'everyone' rounds are served;
-// invite-only and unknown rounds both 404 so private rounds never leak.
-// Tallies are returned for every status — round.status tells callers
-// whether the count is partial (open/draft) or final (closed). Unlike the
-// in-app view (which hides tallies from non-voters until they vote), this
-// endpoint intentionally exposes the live tally: it exists for admin
-// monitoring and matches the admin's in-app visibility.
+// tools can poll it with no token. ?round=<slug> targets a round; with no
+// param the "current vote" is served: the most recently created OPEN
+// public round, else the most recently created public round of any
+// status. Only 'everyone' rounds are served; invite-only and unknown
+// rounds both 404 so private rounds never leak.
+// Per-app tallies follow the same reveal rule as every other surface
+// (issue #26): resultsRevealed() — round closed, or the caller supplied an
+// admin's token. Until then each candidate's `votes` is null and the list
+// keeps the round's own app order (position) instead of being sorted by
+// score, since a votes-derived ordering would disclose the standings just
+// as plainly as the numbers. voter_count / total_votes are always real:
+// they say how much voting has happened, not who is winning, and
+// /api/leaderboard already publishes per-voter counts. round.status tells
+// callers whether a revealed count is partial (draft) or final (closed).
+// The endpoint reads req.user when a token happens to be present (the auth
+// middleware verifies it for public paths too) so an admin poller still
+// gets live tallies; with no token isAdmin(null) is false.
 // ?include_builders=1|true (default off) nests each app's builders UNDER
 // that app (issue #39): every results.candidates[] entry gains `builders`
 // ({ wallet_address, username, user_id, nb_prs }, sorted nb_prs desc then
@@ -973,25 +990,33 @@ app.get('/api/results', async (req, res) => {
 
     const candidates = await loadCandidates(round.id);
     const t = await tallyResults(round.id);
-    const tallied = candidates
-      .map((c) => ({
-        id: c.id,
-        app_name: c.app_name,
-        app_slug: c.app_slug || null,
-        app_url: c.app_url || null,
-        votes: t.byId[c.id] || 0,
-      }))
-      .sort(
+    const revealed = resultsRevealed(round, req.user);
+    // total_votes is the real figure either way — it's an aggregate that
+    // reveals no per-app standing, so compute it before any suppression.
+    const totalVotes = candidates.reduce((sum, c) => sum + (t.byId[c.id] || 0), 0);
+    const tallied = candidates.map((c) => ({
+      id: c.id,
+      app_name: c.app_name,
+      app_slug: c.app_slug || null,
+      app_url: c.app_url || null,
+      votes: revealed ? t.byId[c.id] || 0 : null,
+    }));
+    if (revealed) {
+      tallied.sort(
         (a, b) =>
           b.votes - a.votes ||
           String(a.app_name).localeCompare(String(b.app_name))
       );
+    }
+    // else: leave loadCandidates' own order (position, then id — the round's
+    // own app order), because ranking by a hidden number would leak exactly
+    // what we're hiding.
 
     const payload = {
       round: publicRound(round),
       results: {
         voter_count: t.voterCount,
-        total_votes: tallied.reduce((sum, c) => sum + c.votes, 0),
+        total_votes: totalVotes,
         candidates: tallied,
       },
     };
@@ -1345,11 +1370,13 @@ app.get('/api/rounds/:slug', async (req, res) => {
       }
     }
 
-    // Results visible to: creator anytime, a voter once they've voted,
-    // everyone once the round is closed — plus any admin, who manages the
-    // round and needs the per-app tally to gauge the impact of removing an app.
+    // Per-app tallies are hidden until the round ends (issue #26); admins,
+    // who manage the round and need the live tally to gauge the impact of
+    // removing an app, are the only exception. Voting or being the creator
+    // does NOT unlock them. `results` stays null on the hidden path — the
+    // client renders its "hidden until the round closes" note from that.
     let results = null;
-    if (isCreator || hasVoted || round.status === 'closed' || isAdmin(u)) {
+    if (resultsRevealed(round, u)) {
       const t = await tallyResults(round.id);
       results = {
         voterCount: t.voterCount,
@@ -1855,7 +1882,7 @@ app.post('/api/rounds/:slug/vote', async (req, res) => {
   }
 });
 
-// Standalone results endpoint (same gating as the detail embed).
+// Standalone results endpoint (same reveal rule as the detail embed).
 app.get('/api/rounds/:slug/results', async (req, res) => {
   try {
     const u = req.user;
@@ -1864,11 +1891,8 @@ app.get('/api/rounds/:slug/results', async (req, res) => {
     if (!(await canViewRound(round, u))) {
       return res.status(403).json({ error: 'You are not invited to this round.' });
     }
-    const isCreator = round.creator_user_id === u.id;
-    const mine = await myAllocation(round.id, u.id);
-    const hasVoted = Object.keys(mine).length > 0;
-    if (!(isCreator || hasVoted || round.status === 'closed')) {
-      return res.status(403).json({ error: 'Vote first to see the results.' });
+    if (!resultsRevealed(round, u)) {
+      return res.status(403).json({ error: 'Results are hidden until the round closes.' });
     }
     const candidates = await loadCandidates(round.id);
     const t = await tallyResults(round.id);
