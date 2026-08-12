@@ -162,6 +162,11 @@
       "name": "Voting results API nests builders per app",
       "path": "/api/results?round=staging-fav-dev-tools&include_builders=1",
       "expectText": "builder_count"
+    },
+    {
+      "name": "Voting results API hides tallies while a round is open",
+      "path": "/api/results?round=staging-voting-progress",
+      "expectText": "\"votes\":null"
     }
   ],
   "visibility": {
