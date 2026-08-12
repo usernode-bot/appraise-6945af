@@ -258,23 +258,6 @@
         ? 'No rounds yet… be the chaos you want to see 🌪️<br>Smash <b>CREATE A ROUND</b>!'
         : 'No rounds yet… check back soon! 🌪️'}</div>`;
 
-    // Confirm + DELETE a round, shared by the list cards and the detail view so
-    // both entry points behave identically. Returns true on success, false if
-    // the user cancelled or the request failed (error is toasted here).
-    async function deleteRound(slug, title) {
-      if (!window.confirm(`Delete the round "${title}"? This permanently removes the round, all its candidate apps, and every ballot. This cannot be undone.`)) {
-        return false;
-      }
-      try {
-        await api('/api/rounds/' + encodeURIComponent(slug), { method: 'DELETE' });
-        toast('Round deleted');
-        return true;
-      } catch (e) {
-        toast(e.message, false);
-        return false;
-      }
-    }
-
     // =========================================================================
     // VIEW: round list
     // =========================================================================
@@ -546,6 +529,42 @@
         <div id="body"></div>`;
 
       $('#back', root).onclick = () => go('/');
+
+      // ---- public results share link ----
+      // Everyone-rounds only: their tallies are already public via
+      // GET /api/results, so ANY viewer may share the link — the standalone
+      // page at /results/<slug> needs no login. Invite-only rounds get no
+      // link (the public API 404s them, so the page would too).
+      if (r.audience === 'everyone') {
+        const share = document.createElement('div');
+        share.className = 'neon-card rounded-2xl p-4 mb-5';
+        const publicUrl = location.origin + '/results/' + encodeURIComponent(r.slug);
+        share.innerHTML = `
+          <div class="funky text-lg text-cyan-200 mb-1">🔗 Share the results</div>
+          <div class="comic text-sm text-zinc-300 mb-2">Anyone with this link can see this round's results — no login needed. ${r.status === 'closed' ? 'The count is final. 🏁' : 'It shows the live tally. 🔴'}</div>
+          <div class="flex gap-2 flex-wrap">
+            <input id="share-url" readonly class="flex-1 min-w-[12rem] bg-black/40 border-2 border-cyan-400/60 rounded-xl px-3 py-2 font-mono text-xs text-cyan-100" value="${esc(publicUrl)}">
+            <button id="share-copy" class="chunky-btn bouncy bg-cyan-300 text-black px-4 py-2 rounded-xl">📋 Copy link</button>
+          </div>`;
+        const bodyEl = $('#body', root);
+        bodyEl.parentNode.insertBefore(share, bodyEl);
+        $('#share-copy', share).onclick = async () => {
+          const input = $('#share-url', share);
+          // Clipboard access isn't guaranteed inside the platform iframe:
+          // try the async API, then execCommand, then leave the URL selected.
+          let ok = false;
+          try { await navigator.clipboard.writeText(publicUrl); ok = true; } catch (_) {}
+          if (!ok) {
+            try { input.focus(); input.select(); ok = document.execCommand('copy'); } catch (_) {}
+          }
+          if (ok) {
+            toast('Public results link copied! 🔗');
+          } else {
+            input.focus(); input.select();
+            toast('Copy blocked — the link is selected, press Ctrl/Cmd-C', false);
+          }
+        };
+      }
 
       // creator controls
       const cc = $('#creator-ctrls', root);
