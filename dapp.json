@@ -162,6 +162,26 @@
       "name": "Voting results API nests builders per app",
       "path": "/api/results?round=staging-fav-dev-tools&include_builders=1",
       "expectText": "builder_count"
+    },
+    {
+      "name": "Public results page renders a closed round",
+      "path": "/results/staging-best-game",
+      "expectText": "RESULTS"
+    },
+    {
+      "name": "Public results page marks closed rounds final",
+      "path": "/results/staging-best-game",
+      "expectText": "Final results"
+    },
+    {
+      "name": "Public results page marks open rounds live",
+      "path": "/results/staging-fav-dev-tools",
+      "expectText": "Live tally"
+    },
+    {
+      "name": "Round detail offers the public share link",
+      "path": "/round/staging-best-game",
+      "expectText": "Share the results"
     }
   ],
   "visibility": {

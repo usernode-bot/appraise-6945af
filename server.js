@@ -1883,6 +1883,17 @@ app.get('/api/rounds/:slug/results', async (req, res) => {
   }
 });
 
+// PUBLIC shareable results page: /results/<slug> serves a standalone
+// read-only page that renders the (already public) /api/results payload for
+// that round. Deliberately unauthenticated — it's a GET outside /api/, so the
+// auth gate above lets it through, and it must be registered BEFORE the
+// auth-gated HTML catch-all. Privacy is enforced by the API it reads:
+// /api/results 404s invite-only and unknown rounds, so the page can never
+// show anything that isn't already public.
+app.get('/results/:slug', (_req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'results.html'));
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Favicon: browsers auto-request /favicon.ico with no platform token, so
