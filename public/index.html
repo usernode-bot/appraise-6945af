@@ -258,23 +258,6 @@
         ? 'No rounds yet… be the chaos you want to see 🌪️<br>Smash <b>CREATE A ROUND</b>!'
         : 'No rounds yet… check back soon! 🌪️'}</div>`;
 
-    // Confirm + DELETE a round, shared by the list cards and the detail view so
-    // both entry points behave identically. Returns true on success, false if
-    // the user cancelled or the request failed (error is toasted here).
-    async function deleteRound(slug, title) {
-      if (!window.confirm(`Delete the round "${title}"? This permanently removes the round, all its candidate apps, and every ballot. This cannot be undone.`)) {
-        return false;
-      }
-      try {
-        await api('/api/rounds/' + encodeURIComponent(slug), { method: 'DELETE' });
-        toast('Round deleted');
-        return true;
-      } catch (e) {
-        toast(e.message, false);
-        return false;
-      }
-    }
-
     // =========================================================================
     // VIEW: round list
     // =========================================================================

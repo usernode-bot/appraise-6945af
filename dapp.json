@@ -60,11 +60,6 @@
       "expectText": "Edit apps"
     },
     {
-      "name": "List shows admin delete buttons",
-      "path": "/",
-      "expectSelector": ".del-row"
-    },
-    {
       "name": "Testers-only toggle present",
       "path": "/create",
       "expectText": "tested all the apps"
