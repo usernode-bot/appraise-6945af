@@ -1,3 +1,4 @@
+throw new Error('[push-test] deliberate boot failure for check_failed notification test');
 const express = require('express');
 const path = require('path');
 const { Pool } = require('pg');
