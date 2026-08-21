@@ -177,6 +177,16 @@
       "name": "Round detail offers the public share link",
       "path": "/round/staging-best-game",
       "expectText": "Share the results"
+    },
+    {
+      "name": "Copyright footer on app",
+      "path": "/",
+      "expectText": "© "
+    },
+    {
+      "name": "Copyright footer on public results",
+      "path": "/results/staging-best-game",
+      "expectText": "© "
     }
   ],
   "visibility": {

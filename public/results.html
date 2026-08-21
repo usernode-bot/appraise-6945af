@@ -65,6 +65,7 @@
   })();
   </script>
   <title>Appraise 🏆 public results</title>
+  <script src="https://social-vibecoding.usernodelabs.org/usernode-bridge/v1/bridge.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>tailwind.config = { darkMode: 'class' }</script>
   <style>
@@ -102,9 +103,13 @@
     }
     .tilt-1 { transform: rotate(-1.2deg); } .tilt-2 { transform: rotate(1deg); }
     .badge { font-weight:800; letter-spacing:.02em; }
+    /* keep the footer clear of the phone's home indicator; the bridge sets
+       --un-safe-inset-bottom inside the platform frame, env() covers
+       standalone, and both collapse to 0 on desktop */
+    footer { padding-bottom: var(--un-safe-inset-bottom, env(safe-area-inset-bottom, 0px)); }
   </style>
 </head>
-<body class="text-zinc-100 min-h-screen p-4 sm:p-6">
+<body class="text-zinc-100 min-h-screen p-4 sm:p-6 flex flex-col">
 
   <header class="max-w-3xl mx-auto mb-6 text-center select-none">
     <h1 class="funky text-4xl sm:text-5xl rainbow drop-shadow-[0_3px_0_rgba(0,0,0,.6)]">🎉 APPRAISE 🗳️</h1>
@@ -115,13 +120,19 @@
     <div class="text-center comic text-2xl animate-pulse">fetching the results… 🔮</div>
   </main>
 
-  <footer class="max-w-3xl mx-auto mt-10 text-center comic text-zinc-500 text-sm">
+  <footer class="max-w-3xl mx-auto mt-auto pt-10 text-center comic text-zinc-500 text-sm">
     powered by Appraise on
     <a href="https://social-vibecoding.usernodelabs.org" class="underline text-cyan-400">Usernode Social Vibecoding</a>
     · individual ballots stay secret 🤐
+    <div class="mt-2">© <span data-copyright-year>2026</span> Appraise</div>
   </footer>
 
   <script>
+    // dynamic copyright year (the 2026 in the markup is the no-JS fallback)
+    document.querySelectorAll('[data-copyright-year]').forEach((el) => {
+      el.textContent = new Date().getFullYear();
+    });
+
     const $ = (sel, root = document) => root.querySelector(sel);
     const esc = (s) => String(s == null ? '' : s)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')

@@ -64,6 +64,7 @@
   })();
   </script>
   <title>Appraise 🎉 chaos vote</title>
+  <script src="https://social-vibecoding.usernodelabs.org/usernode-bridge/v1/bridge.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>tailwind.config = { darkMode: 'class' }</script>
   <style>
@@ -146,12 +147,16 @@
       0% { transform: translateY(-20px) rotate(0); opacity: 1; }
       100% { transform: translateY(105vh) rotate(720deg); opacity: 1; }
     }
+    /* keep the footer clear of the phone's home indicator; the bridge sets
+       --un-safe-inset-bottom inside the platform frame, env() covers
+       standalone, and both collapse to 0 on desktop */
+    footer { padding-bottom: var(--un-safe-inset-bottom, env(safe-area-inset-bottom, 0px)); }
     ::-webkit-scrollbar { width: 12px; }
     ::-webkit-scrollbar-thumb { background: linear-gradient(#ff3cac,#2afadf); border-radius: 8px; }
     .badge { font-weight:800; letter-spacing:.02em; }
   </style>
 </head>
-<body class="text-zinc-100 min-h-screen p-4 sm:p-6">
+<body class="text-zinc-100 min-h-screen p-4 sm:p-6 flex flex-col">
 
   <header class="max-w-3xl mx-auto mb-6 text-center select-none">
     <h1 class="funky text-4xl sm:text-6xl rainbow drop-shadow-[0_3px_0_rgba(0,0,0,.6)] cursor-pointer"
@@ -162,11 +167,17 @@
 
   <main id="app" class="max-w-3xl mx-auto"></main>
 
-  <footer class="max-w-3xl mx-auto mt-10 text-center comic text-zinc-500 text-sm">
+  <footer class="max-w-3xl mx-auto mt-auto pt-10 text-center comic text-zinc-500 text-sm">
     built with chaos &amp; confetti · your individual ballot stays secret 🤐
+    <div class="mt-2">© <span data-copyright-year>2026</span> Appraise</div>
   </footer>
 
   <script>
+    // dynamic copyright year (the 2026 in the markup is the no-JS fallback)
+    document.querySelectorAll('[data-copyright-year]').forEach((el) => {
+      el.textContent = new Date().getFullYear();
+    });
+
     // ----- token bootstrap (forward platform JWT on every fetch) -----
     const params = new URLSearchParams(window.location.search);
     const token = params.get('token') || '';
