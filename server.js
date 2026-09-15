@@ -85,7 +85,7 @@ function isAdmin(user) {
 
 // Platform public app directory — source of candidate apps + their
 // contributors. Snapshotted into a round at creation time.
-const APPS_DIRECTORY_URL = 'https://social-vibecoding.usernodelabs.org/api/public/apps';
+const APPS_DIRECTORY_URL = 'https://my.onhomeroom.com/api/public/apps';
 
 // Obviously-fake fallback apps so the create-form picker is still usable in
 // staging when the live directory can't be reached (staging has no
