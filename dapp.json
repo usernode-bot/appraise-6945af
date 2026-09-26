@@ -1,5 +1,8 @@
 {
   "name": "Appraise",
+  "icon": {
+    "image": "public/icon.png"
+  },
   "secrets": [
     {
       "key": "ADMIN_USERNAMES",
