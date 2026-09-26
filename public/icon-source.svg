@@ -1,0 +1,40 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="bg-a" cx="14%" cy="16%" r="55%">
+      <stop offset="0%" stop-color="#ff3cac" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#ff3cac" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="bg-b" cx="88%" cy="20%" r="55%">
+      <stop offset="0%" stop-color="#2afadf" stop-opacity="0.5"/>
+      <stop offset="100%" stop-color="#2afadf" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="bg-c" cx="22%" cy="88%" r="55%">
+      <stop offset="0%" stop-color="#ffeb3b" stop-opacity="0.4"/>
+      <stop offset="100%" stop-color="#ffeb3b" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="bg-d" cx="82%" cy="84%" r="55%">
+      <stop offset="0%" stop-color="#7c4dff" stop-opacity="0.55"/>
+      <stop offset="100%" stop-color="#7c4dff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="star-fill" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ff3cac"/>
+      <stop offset="35%" stop-color="#ffeb3b"/>
+      <stop offset="68%" stop-color="#2afadf"/>
+      <stop offset="100%" stop-color="#7c4dff"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" fill="#0a0118"/>
+  <rect width="512" height="512" fill="url(#bg-a)"/>
+  <rect width="512" height="512" fill="url(#bg-b)"/>
+  <rect width="512" height="512" fill="url(#bg-c)"/>
+  <rect width="512" height="512" fill="url(#bg-d)"/>
+
+  <!-- chunky drop shadow, offset like the app's .chunky-btn style -->
+  <path d="M 256.0,84.0 L 297.1,199.4 L 419.6,202.8 L 322.6,277.6 L 357.1,395.2 L 256.0,326.0 L 154.9,395.2 L 189.4,277.6 L 92.4,202.8 L 214.9,199.4 Z"
+        transform="translate(18,18)" fill="#0a0118"/>
+
+  <!-- main star, rainbow fill with thick black outline -->
+  <path d="M 256.0,84.0 L 297.1,199.4 L 419.6,202.8 L 322.6,277.6 L 357.1,395.2 L 256.0,326.0 L 154.9,395.2 L 189.4,277.6 L 92.4,202.8 L 214.9,199.4 Z"
+        fill="url(#star-fill)" stroke="#0a0118" stroke-width="16" stroke-linejoin="round"/>
+</svg>
