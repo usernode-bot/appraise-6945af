@@ -1,7 +1,7 @@
 {
   "name": "Appraise",
   "icon": {
-    "image": "public/icon.png"
+    "image": "brand/icon.png"
   },
   "secrets": [
     {
