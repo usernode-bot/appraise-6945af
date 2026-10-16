@@ -63,7 +63,7 @@
     try { post('info', ['[dev-console ready]'], { kind: 'ready' }); } catch (_) {}
   })();
   </script>
-  <title>Appraise 🎉 chaos vote</title>
+  <title>Appraise chaos vote</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>tailwind.config = { darkMode: 'class' }</script>
   <style>
@@ -155,15 +155,15 @@
 
   <header class="max-w-3xl mx-auto mb-6 text-center select-none">
     <h1 class="funky text-4xl sm:text-6xl rainbow drop-shadow-[0_3px_0_rgba(0,0,0,.6)] cursor-pointer"
-        id="logo">🎉 APPRAISE 🗳️</h1>
-    <p class="comic text-lg text-yellow-300 mt-1 -rotate-1">vote for the apps you LOVE… no funny business 👀</p>
-    <div id="staging-flag" class="hidden mt-2 inline-block bg-pink-600 text-white badge px-3 py-1 rounded-full tilt-2 text-sm">⚠️ STAGING SANDBOX — fake data ahoy</div>
+        id="logo">APPRAISE</h1>
+    <p class="comic text-lg text-yellow-300 mt-1 -rotate-1">vote for the apps you LOVE… no funny business</p>
+    <div id="staging-flag" class="hidden mt-2 inline-block bg-pink-600 text-white badge px-3 py-1 rounded-full tilt-2 text-sm">STAGING SANDBOX — fake data ahoy</div>
   </header>
 
   <main id="app" class="max-w-3xl mx-auto"></main>
 
   <footer class="max-w-3xl mx-auto mt-10 text-center comic text-zinc-500 text-sm">
-    built with chaos &amp; confetti · your individual ballot stays secret 🤐
+    built with chaos &amp; confetti · your individual ballot stays secret
   </footer>
 
   <script>
@@ -198,7 +198,6 @@
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
-    const EMOJI = ['🎉','🚀','🔥','💥','🌈','⚡','🎊','✨','🤪','🥳','👾','🦄','🍕','💖','🎈'];
     const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
     // ----- confetti -----
@@ -227,7 +226,7 @@
       const t = document.createElement('div');
       t.className = 'fixed left-1/2 -translate-x-1/2 bottom-6 z-[9998] px-5 py-3 rounded-2xl badge chunky-btn pop-in ' +
         (ok ? 'bg-emerald-400 text-emerald-950' : 'bg-pink-500 text-white');
-      t.textContent = (ok ? '✅ ' : '💢 ') + msg;
+      t.textContent = msg;
       document.body.appendChild(t);
       setTimeout(() => { t.style.transition = 'opacity .4s'; t.style.opacity = '0'; }, 2600);
       setTimeout(() => t.remove(), 3100);
@@ -242,27 +241,27 @@
 
     function statusBadge(status) {
       const map = {
-        open:   ['🟢 OPEN', 'bg-emerald-400 text-emerald-950'],
-        draft:  ['📝 DRAFT', 'bg-yellow-300 text-yellow-900'],
-        closed: ['🔒 CLOSED', 'bg-fuchsia-400 text-fuchsia-950'],
+        open:   ['OPEN', 'bg-emerald-400 text-emerald-950'],
+        draft:  ['DRAFT', 'bg-yellow-300 text-yellow-900'],
+        closed: ['CLOSED', 'bg-fuchsia-400 text-fuchsia-950'],
       };
       const pair = map[status] || ['?', 'bg-zinc-400 text-black'];
       return `<span class="badge ${pair[1]} px-2.5 py-1 rounded-full text-xs">${pair[0]}</span>`;
     }
-    const audLabel = (a) => a === 'invite' ? '🤫 Invited only' : '🌍 Everyone';
+    const audLabel = (a) => a === 'invite' ? 'Invited only' : 'Everyone';
 
     // Empty-state copy: only admins get the CREATE A ROUND call-to-action,
     // since only they see the button (round creation is admin-only).
     const emptyListHtml = (admin) => `<div class="neon-card rounded-3xl p-8 text-center comic text-xl text-zinc-300">
       ${admin
-        ? 'No rounds yet… be the chaos you want to see 🌪️<br>Smash <b>CREATE A ROUND</b>!'
-        : 'No rounds yet… check back soon! 🌪️'}</div>`;
+        ? 'No rounds yet… be the chaos you want to see<br>Smash <b>CREATE A ROUND</b>!'
+        : 'No rounds yet… check back soon!'}</div>`;
 
     // =========================================================================
     // VIEW: round list
     // =========================================================================
     async function renderList(root) {
-      root.innerHTML = `<div class="text-center comic text-2xl animate-pulse">loading the chaos… 🌀</div>`;
+      root.innerHTML = `<div class="text-center comic text-2xl animate-pulse">loading the chaos…</div>`;
       let data;
       try { data = await api('/api/rounds'); }
       catch (e) { root.innerHTML = errBox(e); return; }
@@ -273,9 +272,9 @@
       const canCreate = !!(ME && ME.is_admin);
       root.innerHTML = `
         <div class="flex items-center justify-between gap-3 mb-5 flex-wrap">
-          <h2 class="funky text-2xl text-cyan-300 tilt-1">🎪 Voting Rounds</h2>
+          <h2 class="funky text-2xl text-cyan-300 tilt-1">Voting Rounds</h2>
           ${canCreate ? `<button id="new-btn" class="chunky-btn jiggly bg-gradient-to-r from-pink-500 to-yellow-400 text-black px-5 py-3 rounded-2xl text-lg">
-            ➕ CREATE A ROUND
+            CREATE A ROUND
           </button>` : ''}
         </div>
         <div id="rounds" class="space-y-4"></div>`;
@@ -292,10 +291,10 @@
         <div data-slug="${esc(r.slug)}" role="button" tabindex="0" class="round-row block w-full text-left neon-card rounded-3xl p-5 wobble tilt-${(i%3)+1} cursor-pointer">
           <div class="flex items-start justify-between gap-3">
             <div>
-              <div class="funky text-xl text-white">${pick(EMOJI)} ${esc(r.title)}</div>
+              <div class="funky text-xl text-white">${esc(r.title)}</div>
               <div class="comic text-sm text-cyan-200 mt-1">
-                ${audLabel(r.audience)} · 🗳️ ${r.votes_per_voter} vote(s) each · 📦 ${r.candidate_count} apps
-                ${r.mine ? '· <span class="text-yellow-300">👑 yours</span>' : ''}
+                ${audLabel(r.audience)} · ${r.votes_per_voter} vote(s) each · ${r.candidate_count} apps
+                ${r.mine ? '· <span class="text-yellow-300">yours</span>' : ''}
               </div>
             </div>
             <div class="flex items-center gap-2 shrink-0">
@@ -315,8 +314,8 @@
 
     function errBox(e) {
       return `<div class="neon-card rounded-3xl p-6 text-center comic text-lg text-pink-300">
-        😬 ${esc(e.message)}<br>
-        <button onclick="location.href='/'" class="chunky-btn bg-cyan-300 text-black px-4 py-2 rounded-xl mt-3">🏠 back home</button>
+        ${esc(e.message)}<br>
+        <button onclick="location.href='/'" class="chunky-btn bg-cyan-300 text-black px-4 py-2 rounded-xl mt-3">back home</button>
       </div>`;
     }
 
@@ -328,7 +327,7 @@
       return `
         <label class="app-opt flex items-center gap-3 neon-card rounded-2xl p-3 cursor-pointer tilt-${(idx%3)+1}">
           <input type="checkbox" class="app-cb w-5 h-5 accent-emerald-400" data-id="${esc(a.id)}">
-          <span class="funky text-white">${pick(EMOJI)} ${esc(a.name)}</span>
+          <span class="funky text-white">${esc(a.name)}</span>
           ${a.slug ? `<span class="comic text-xs text-zinc-400 ml-auto break-all">${esc(a.slug)}</span>` : ''}
         </label>`;
     }
@@ -337,9 +336,9 @@
     // the server enforces the same gate on POST /api/rounds regardless.
     function renderCreateDenied(root) {
       root.innerHTML = `
-        <button id="back" class="comic text-cyan-300 mb-3">⬅ back to rounds</button>
+        <button id="back" class="comic text-cyan-300 mb-3">back to rounds</button>
         <div class="neon-card rounded-3xl p-8 text-center">
-          <div class="funky text-2xl text-yellow-300 mb-2 tilt-1">🔒 Only admins can create rounds</div>
+          <div class="funky text-2xl text-yellow-300 mb-2 tilt-1">Only admins can create rounds</div>
           <div class="comic text-zinc-300">Ask an admin if you'd like a new voting round.</div>
         </div>`;
       $('#back', root).onclick = () => go('/');
@@ -347,12 +346,12 @@
 
     function renderCreate(root) {
       root.innerHTML = `
-        <button id="back" class="comic text-cyan-300 mb-3">⬅ back to rounds</button>
+        <button id="back" class="comic text-cyan-300 mb-3">back to rounds</button>
         <div class="neon-card rounded-3xl p-6">
-          <h2 class="funky text-2xl text-yellow-300 mb-4 tilt-2">🛠️ Build a Voting Round</h2>
+          <h2 class="funky text-2xl text-yellow-300 mb-4 tilt-2">Build a Voting Round</h2>
 
           <label class="comic text-cyan-200">Title *</label>
-          <input id="f-title" class="w-full bg-black/40 border-2 border-cyan-400/60 rounded-xl px-3 py-2 mb-3 mt-1" placeholder="Best app of June 2026 🏆">
+          <input id="f-title" class="w-full bg-black/40 border-2 border-cyan-400/60 rounded-xl px-3 py-2 mb-3 mt-1" placeholder="Best app of June 2026">
 
           <label class="comic text-cyan-200">Description</label>
           <textarea id="f-desc" rows="2" class="w-full bg-black/40 border-2 border-fuchsia-400/60 rounded-xl px-3 py-2 mb-3 mt-1" placeholder="what's this vote about?"></textarea>
@@ -361,8 +360,8 @@
             <div>
               <label class="comic text-cyan-200">Who can vote?</label>
               <select id="f-aud" class="w-full bg-black/40 border-2 border-emerald-400/60 rounded-xl px-3 py-2 mt-1">
-                <option value="everyone">🌍 Everyone</option>
-                <option value="invite">🤫 Invited only</option>
+                <option value="everyone">Everyone</option>
+                <option value="invite">Invited only</option>
               </select>
             </div>
             <div>
@@ -379,8 +378,8 @@
           <div class="mb-3">
             <label class="comic text-cyan-200">Vote distribution</label>
             <select id="f-rule" class="w-full bg-black/40 border-2 border-orange-400/60 rounded-xl px-3 py-2 mt-1">
-              <option value="one_per_app">🎯 One vote per app (spread them out)</option>
-              <option value="concentrate">🧮 Concentrate (all votes can go on one app)</option>
+              <option value="one_per_app">One vote per app (spread them out)</option>
+              <option value="concentrate">Concentrate (all votes can go on one app)</option>
             </select>
           </div>
 
@@ -388,26 +387,26 @@
 
           <label class="flex items-center gap-3 comic text-cyan-200 mb-4 cursor-pointer select-none neon-card rounded-2xl p-3">
             <input id="f-self-vote" type="checkbox" class="w-5 h-5 accent-pink-500">
-            <span>🙋 Allow people to vote on their own app
+            <span>Allow people to vote on their own app
               <span class="text-zinc-400 text-sm">(off by default — contributors can't vote for their own app)</span>
             </span>
           </label>
 
           <label class="flex items-center gap-3 comic text-cyan-200 mb-4 cursor-pointer select-none neon-card rounded-2xl p-3">
             <input id="f-require-tested" type="checkbox" class="w-5 h-5 accent-emerald-400">
-            <span>🧪 Allow only people who tested all the apps in this round to vote
+            <span>Allow only people who tested all the apps in this round to vote
               <span class="text-zinc-400 text-sm">(off by default — voters must have used every app in the round)</span>
             </span>
           </label>
 
           <div class="flex items-center justify-between mb-2">
-            <label class="comic text-cyan-200 text-lg">📦 Pick candidate apps (min 2)</label>
-            <button id="reload-apps" class="chunky-btn bouncy bg-cyan-300 text-black px-3 py-1.5 rounded-xl">🔄 reload</button>
+            <label class="comic text-cyan-200 text-lg">Pick candidate apps (min 2)</label>
+            <button id="reload-apps" class="chunky-btn bouncy bg-cyan-300 text-black px-3 py-1.5 rounded-xl">reload</button>
           </div>
           <div id="app-picker" class="space-y-2 mb-4 max-h-96 overflow-auto"></div>
 
           <button id="create" class="chunky-btn jiggly w-full bg-gradient-to-r from-emerald-400 via-yellow-300 to-pink-500 text-black text-xl py-4 rounded-2xl">
-            🚀 CREATE ROUND (as draft)
+            CREATE ROUND (as draft)
           </button>
           <div id="c-err" class="comic text-pink-300 text-center mt-3"></div>
         </div>`;
@@ -426,13 +425,13 @@
       };
 
       async function loadApps() {
-        picker.innerHTML = `<div class="comic text-cyan-200 animate-pulse">loading apps from the directory… 🛰️</div>`;
+        picker.innerHTML = `<div class="comic text-cyan-200 animate-pulse">loading apps from the directory…</div>`;
         setCreateEnabled(false);
         try {
           const data = await api('/api/apps');
           const apps = data.apps || [];
           if (!apps.length) {
-            picker.innerHTML = `<div class="comic text-yellow-300">😶 No apps found in the directory yet.</div>`;
+            picker.innerHTML = `<div class="comic text-yellow-300">No apps found in the directory yet.</div>`;
             return;
           }
           picker.innerHTML = apps.map((a, i) => appOptRow(a, i)).join('');
@@ -443,7 +442,7 @@
           });
           setCreateEnabled(true);
         } catch (e) {
-          picker.innerHTML = `<div class="comic text-pink-300">😬 ${esc(e.message)}<br>
+          picker.innerHTML = `<div class="comic text-pink-300">${esc(e.message)}<br>
             Couldn't load the app list — <button id="retry-apps" class="underline text-cyan-300">try again</button>.</div>`;
           const rb = $('#retry-apps', picker);
           if (rb) rb.onclick = loadApps;
@@ -458,11 +457,11 @@
       const updateSpread = () => {
         const n = Math.max(1, parseInt(vpv.value, 10) || 1);
         if (n <= 1) {
-          spreadNote.textContent = '🗳️ 1 vote each — both distribution rules behave the same with a single vote.';
+          spreadNote.textContent = '1 vote each — both distribution rules behave the same with a single vote.';
         } else if (ruleSel.value === 'concentrate') {
-          spreadNote.textContent = `🧮 Concentrate: a voter may put all ${n} of their votes on one app.`;
+          spreadNote.textContent = `Concentrate: a voter may put all ${n} of their votes on one app.`;
         } else {
-          spreadNote.textContent = `🎯 One vote per app: each app can get at most 1 of a voter's ${n} votes — they must spread out.`;
+          spreadNote.textContent = `One vote per app: each app can get at most 1 of a voter's ${n} votes — they must spread out.`;
         }
       };
       vpv.oninput = updateSpread; ruleSel.onchange = updateSpread; updateSpread();
@@ -485,11 +484,11 @@
         try {
           const out = await api('/api/rounds', { method: 'POST', body: JSON.stringify(payload) });
           confetti(120);
-          toast('Round created! 🎉');
+          toast('Round created!');
           if (out.warning) toast(out.warning, false);
           go('/round/' + out.round.slug);
         } catch (e) {
-          $('#c-err', root).textContent = '💢 ' + e.message;
+          $('#c-err', root).textContent = e.message;
           shake($('#create', root));
         }
       };
@@ -499,9 +498,12 @@
     // VIEW: round detail (vote + results)
     // =========================================================================
     async function renderDetail(root, slug) {
-      root.innerHTML = `<div class="text-center comic text-2xl animate-pulse">summoning the round… 🔮</div>`;
+      root.innerHTML = `<div class="text-center comic text-2xl animate-pulse">summoning the round…</div>`;
+      // The staging-only ?demo=1 testers-gate pass lives on the API query, so
+      // forward it wherever the round is fetched or a ballot is cast.
+      const demoQs = params.get('demo') === '1' ? '?demo=1' : '';
       let d;
-      try { d = await api('/api/rounds/' + encodeURIComponent(slug)); }
+      try { d = await api('/api/rounds/' + encodeURIComponent(slug) + demoQs); }
       catch (e) { root.innerHTML = errBox(e); return; }
 
       const r = d.round;
@@ -511,15 +513,15 @@
       d.candidates.forEach((c) => { alloc[c.id] = c.my_votes || 0; });
 
       root.innerHTML = `
-        <button id="back" class="comic text-cyan-300 mb-3">⬅ back to rounds</button>
+        <button id="back" class="comic text-cyan-300 mb-3">back to rounds</button>
         <div class="neon-card rounded-3xl p-6 mb-5">
           <div class="flex items-start justify-between gap-3 flex-wrap">
             <div>
-              <h2 class="funky text-2xl text-white">${pick(EMOJI)} ${esc(r.title)}</h2>
-              <div class="comic text-cyan-200 mt-1">${audLabel(r.audience)} · 🗳️ ${allowance} vote(s) each · by @${esc(r.creator_username)}</div>
-              <div class="comic text-sm mt-1 ${r.allow_self_vote ? 'text-emerald-300' : 'text-pink-300'}">${r.allow_self_vote ? '🙋 self-voting allowed' : '🚫 no self-voting — contributors can\'t vote for their own app'}</div>
-              <div class="comic text-sm mt-1 text-orange-300">${r.vote_rule === 'concentrate' ? '🧮 concentrate allowed — you can put all your votes on one app' : '🎯 one vote per app — spread your votes across apps'}</div>
-              ${r.require_tested_all ? `<div class="comic text-sm mt-1 text-emerald-300">🧪 testers only — you must try every app in this round to vote</div>` : ''}
+              <h2 class="funky text-2xl text-white">${esc(r.title)}</h2>
+              <div class="comic text-cyan-200 mt-1">${audLabel(r.audience)} · ${allowance} vote(s) each · by @${esc(r.creator_username)}</div>
+              <div class="comic text-sm mt-1 ${r.allow_self_vote ? 'text-emerald-300' : 'text-pink-300'}">${r.allow_self_vote ? 'self-voting allowed' : 'no self-voting — contributors can\'t vote for their own app'}</div>
+              <div class="comic text-sm mt-1 text-orange-300">${r.vote_rule === 'concentrate' ? 'concentrate allowed — you can put all your votes on one app' : 'one vote per app — spread your votes across apps'}</div>
+              ${r.require_tested_all ? `<div class="comic text-sm mt-1 text-emerald-300">testers only — you must try every app in this round to vote</div>` : ''}
             </div>
             ${statusBadge(r.status)}
           </div>
@@ -540,11 +542,11 @@
         share.className = 'neon-card rounded-2xl p-4 mb-5';
         const publicUrl = location.origin + '/results/' + encodeURIComponent(r.slug);
         share.innerHTML = `
-          <div class="funky text-lg text-cyan-200 mb-1">🔗 Share the results</div>
-          <div class="comic text-sm text-zinc-300 mb-2">Anyone with this link can see this round's results — no login needed. ${r.status === 'closed' ? 'The count is final. 🏁' : 'It shows the live tally. 🔴'}</div>
+          <div class="funky text-lg text-cyan-200 mb-1">Share the results</div>
+          <div class="comic text-sm text-zinc-300 mb-2">Anyone with this link can see this round's results — no login needed. ${r.status === 'closed' ? 'The count is final.' : 'It shows the live tally.'}</div>
           <div class="flex gap-2 flex-wrap">
             <input id="share-url" readonly class="flex-1 min-w-[12rem] bg-black/40 border-2 border-cyan-400/60 rounded-xl px-3 py-2 font-mono text-xs text-cyan-100" value="${esc(publicUrl)}">
-            <button id="share-copy" class="chunky-btn bouncy bg-cyan-300 text-black px-4 py-2 rounded-xl">📋 Copy link</button>
+            <button id="share-copy" class="chunky-btn bouncy bg-cyan-300 text-black px-4 py-2 rounded-xl">Copy link</button>
           </div>`;
         const bodyEl = $('#body', root);
         bodyEl.parentNode.insertBefore(share, bodyEl);
@@ -558,7 +560,7 @@
             try { input.focus(); input.select(); ok = document.execCommand('copy'); } catch (_) {}
           }
           if (ok) {
-            toast('Public results link copied! 🔗');
+            toast('Public results link copied!');
           } else {
             input.focus(); input.select();
             toast('Copy blocked — the link is selected, press Ctrl/Cmd-C', false);
@@ -570,21 +572,21 @@
       const cc = $('#creator-ctrls', root);
       if (d.isCreator) {
         if (r.status === 'draft') {
-          cc.innerHTML = `<button id="open-r" class="chunky-btn bouncy bg-emerald-400 text-black px-4 py-2 rounded-xl">🟢 Open voting</button>
+          cc.innerHTML = `<button id="open-r" class="chunky-btn bouncy bg-emerald-400 text-black px-4 py-2 rounded-xl">Open voting</button>
             <span class="comic text-yellow-300 self-center">it's a draft — open it when ready!</span>`;
           $('#open-r', cc).onclick = async () => {
             try { await api('/api/rounds/' + slug + '/open', { method: 'POST' }); confetti(80); renderDetail(root, slug); }
             catch (e) { toast(e.message, false); }
           };
         } else if (r.status === 'open') {
-          cc.innerHTML = `<button id="close-r" class="chunky-btn bg-fuchsia-400 text-black px-4 py-2 rounded-xl">🔒 Close round</button>
-            <span class="comic text-cyan-200 self-center">you can peek at results anytime 👑</span>`;
+          cc.innerHTML = `<button id="close-r" class="chunky-btn bg-fuchsia-400 text-black px-4 py-2 rounded-xl">Close round</button>
+            <span class="comic text-cyan-200 self-center">you can peek at results anytime</span>`;
           $('#close-r', cc).onclick = async () => {
             try { await api('/api/rounds/' + slug + '/close', { method: 'POST' }); renderDetail(root, slug); }
             catch (e) { toast(e.message, false); }
           };
         } else {
-          cc.innerHTML = `<span class="comic text-fuchsia-300">round closed — results are public 🏆</span>`;
+          cc.innerHTML = `<span class="comic text-fuchsia-300">round closed — results are public</span>`;
         }
       }
 
@@ -602,7 +604,7 @@
           const on = !!r.require_tested_all;
           tWrap.innerHTML = `
             <button id="tg-r" class="chunky-btn ${on ? 'bg-emerald-400 text-black' : 'bg-zinc-700 text-white'} px-4 py-2 rounded-xl">
-              🧪 Testers-only voting: ${on ? 'On' : 'Off'}
+              Testers-only voting: ${on ? 'On' : 'Off'}
             </button>
             <span class="comic text-emerald-200 text-sm self-center ml-2">admin · ${on ? 'click to allow everyone' : 'click to require testing all apps'}</span>`;
           const btn = $('#tg-r', tWrap);
@@ -631,7 +633,7 @@
           const concentrate = r.vote_rule === 'concentrate';
           rWrap.innerHTML = `
             <button id="vr-r" class="chunky-btn ${concentrate ? 'bg-orange-400 text-black' : 'bg-zinc-700 text-white'} px-4 py-2 rounded-xl">
-              ${concentrate ? '🧮 Vote rule: Concentrate' : '🎯 Vote rule: One per app'}
+              ${concentrate ? 'Vote rule: Concentrate' : 'Vote rule: One per app'}
             </button>
             <span class="comic text-orange-200 text-sm self-center ml-2">admin · ${concentrate ? 'click to require one vote per app' : 'click to allow concentrating all votes on one app'}</span>`;
           const btn = $('#vr-r', rWrap);
@@ -662,7 +664,7 @@
         const voteCount = (d.results && typeof d.results.voterCount === 'number') ? d.results.voterCount : 0;
 
         const renderEditIdle = () => {
-          eWrap.innerHTML = `<button id="edit-r" class="chunky-btn bg-cyan-400 text-black px-4 py-2 rounded-xl">✏️ Edit round details</button>
+          eWrap.innerHTML = `<button id="edit-r" class="chunky-btn bg-cyan-400 text-black px-4 py-2 rounded-xl">Edit round details</button>
             <span class="comic text-cyan-200 text-sm self-center ml-2">admin · title, description, audience & voting rules</span>`;
           $('#edit-r', eWrap).onclick = renderEditForm;
         };
@@ -670,8 +672,8 @@
         const renderEditForm = () => {
           eWrap.innerHTML = `
             <div class="neon-card rounded-2xl p-4 space-y-3">
-              <div class="funky text-lg text-cyan-200">✏️ Edit round details</div>
-              ${voteCount > 0 ? `<div class="comic text-sm text-yellow-300">⚠️ ${voteCount} ballot(s) already cast — changes apply from now on and won't alter existing votes.</div>` : ''}
+              <div class="funky text-lg text-cyan-200">Edit round details</div>
+              ${voteCount > 0 ? `<div class="comic text-sm text-yellow-300">${voteCount} ballot(s) already cast — changes apply from now on and won't alter existing votes.</div>` : ''}
               <div>
                 <label class="comic text-cyan-200">Title</label>
                 <input id="e-title" class="w-full bg-black/40 border-2 border-cyan-400/60 rounded-xl px-3 py-2 mt-1" value="${esc(r.title)}">
@@ -684,8 +686,8 @@
                 <div>
                   <label class="comic text-cyan-200">Audience</label>
                   <select id="e-aud" class="w-full bg-black/40 border-2 border-emerald-400/60 rounded-xl px-3 py-2 mt-1">
-                    <option value="everyone">🌍 Everyone</option>
-                    <option value="invite">🤫 Invited only</option>
+                    <option value="everyone">Everyone</option>
+                    <option value="invite">Invited only</option>
                   </select>
                 </div>
                 <div>
@@ -700,21 +702,21 @@
               <div>
                 <label class="comic text-cyan-200">Vote distribution</label>
                 <select id="e-rule" class="w-full bg-black/40 border-2 border-orange-400/60 rounded-xl px-3 py-2 mt-1">
-                  <option value="one_per_app">🎯 One vote per app (spread them out)</option>
-                  <option value="concentrate">🧮 Concentrate (all votes can go on one app)</option>
+                  <option value="one_per_app">One vote per app (spread them out)</option>
+                  <option value="concentrate">Concentrate (all votes can go on one app)</option>
                 </select>
               </div>
               <div id="e-spread-note" class="comic text-sm text-emerald-300"></div>
               <label class="flex items-center gap-3 comic text-cyan-200 cursor-pointer select-none neon-card rounded-2xl p-3">
                 <input id="e-self-vote" type="checkbox" class="w-5 h-5 accent-pink-500">
-                <span>🙋 Allow people to vote on their own app</span>
+                <span>Allow people to vote on their own app</span>
               </label>
               <label class="flex items-center gap-3 comic text-cyan-200 cursor-pointer select-none neon-card rounded-2xl p-3">
                 <input id="e-require-tested" type="checkbox" class="w-5 h-5 accent-emerald-400">
-                <span>🧪 Allow only people who tested all the apps in this round to vote</span>
+                <span>Allow only people who tested all the apps in this round to vote</span>
               </label>
               <div class="flex gap-2 flex-wrap">
-                <button id="e-save" class="chunky-btn bg-cyan-400 text-black px-4 py-2 rounded-xl">💾 Save changes</button>
+                <button id="e-save" class="chunky-btn bg-cyan-400 text-black px-4 py-2 rounded-xl">Save changes</button>
                 <button id="e-cancel" class="chunky-btn bg-zinc-700 text-white px-4 py-2 rounded-xl">Cancel</button>
               </div>
               <div id="e-err" class="comic text-pink-300"></div>
@@ -735,9 +737,9 @@
           const note = $('#e-spread-note', eWrap);
           const updateSpread = () => {
             const n = Math.max(1, parseInt(vpv.value, 10) || 1);
-            if (n <= 1) note.textContent = '🗳️ 1 vote each — both distribution rules behave the same with a single vote.';
-            else if (ruleSel.value === 'concentrate') note.textContent = `🧮 Concentrate: a voter may put all ${n} of their votes on one app.`;
-            else note.textContent = `🎯 One vote per app: each app can get at most 1 of a voter's ${n} votes — they must spread out.`;
+            if (n <= 1) note.textContent = '1 vote each — both distribution rules behave the same with a single vote.';
+            else if (ruleSel.value === 'concentrate') note.textContent = `Concentrate: a voter may put all ${n} of their votes on one app.`;
+            else note.textContent = `One vote per app: each app can get at most 1 of a voter's ${n} votes — they must spread out.`;
           };
           vpv.oninput = updateSpread; ruleSel.onchange = updateSpread; updateSpread();
 
@@ -746,9 +748,9 @@
           saveBtn.onclick = async () => {
             if (saveBtn.disabled) return;
             const title = $('#e-title', eWrap).value.trim();
-            if (!title) { $('#e-err', eWrap).textContent = '💢 A title is required.'; shake(saveBtn); return; }
+            if (!title) { $('#e-err', eWrap).textContent = 'A title is required.'; shake(saveBtn); return; }
             saveBtn.disabled = true;
-            saveBtn.textContent = '💾 Saving…';
+            saveBtn.textContent = 'Saving…';
             const payload = {
               title,
               description: $('#e-desc', eWrap).value.trim(),
@@ -762,14 +764,14 @@
             try {
               const out = await api('/api/rounds/' + encodeURIComponent(slug),
                 { method: 'PATCH', body: JSON.stringify(payload) });
-              toast('Round updated ✨');
+              toast('Round updated');
               if (out.warning) toast(out.warning, false);
               renderDetail(root, slug);
             } catch (e) {
-              $('#e-err', eWrap).textContent = '💢 ' + e.message;
+              $('#e-err', eWrap).textContent = e.message;
               toast(e.message, false);
               saveBtn.disabled = false;
-              saveBtn.textContent = '💾 Save changes';
+              saveBtn.textContent = 'Save changes';
             }
           };
         };
@@ -797,7 +799,7 @@
         );
 
         const renderAppsIdle = () => {
-          aWrap.innerHTML = `<button id="edit-apps" class="chunky-btn bg-lime-400 text-black px-4 py-2 rounded-xl">🧩 Edit included apps</button>
+          aWrap.innerHTML = `<button id="edit-apps" class="chunky-btn bg-lime-400 text-black px-4 py-2 rounded-xl">Edit included apps</button>
             <span class="comic text-lime-200 text-sm self-center ml-2">admin · add or remove the competing apps</span>`;
           $('#edit-apps', aWrap).onclick = renderAppsForm;
         };
@@ -807,7 +809,7 @@
           const addSet = new Set();        // directory app ids to add
           aWrap.innerHTML = `
             <div class="neon-card rounded-2xl p-4 space-y-3">
-              <div class="funky text-lg text-lime-200">🧩 Edit included apps</div>
+              <div class="funky text-lg text-lime-200">Edit included apps</div>
               <div id="ea-warn" class="comic text-sm text-yellow-300"></div>
               <div>
                 <div class="comic text-cyan-200 mb-1">Currently in this round</div>
@@ -818,7 +820,7 @@
                 <div id="ea-picker" class="space-y-2 max-h-72 overflow-auto"></div>
               </div>
               <div class="flex gap-2 flex-wrap">
-                <button id="ea-save" class="chunky-btn bg-lime-400 text-black px-4 py-2 rounded-xl">💾 Save app changes</button>
+                <button id="ea-save" class="chunky-btn bg-lime-400 text-black px-4 py-2 rounded-xl">Save app changes</button>
                 <button id="ea-cancel" class="chunky-btn bg-zinc-700 text-white px-4 py-2 rounded-xl">Cancel</button>
               </div>
               <div id="ea-err" class="comic text-pink-300"></div>
@@ -838,10 +840,10 @@
               .reduce((n, c) => n + (voteById[c.id] || 0), 0);
             const bits = [];
             if (lostVotes > 0) {
-              bits.push(`⚠️ Removing these apps permanently discards ${lostVotes} cast vote(s).`);
+              bits.push(`Removing these apps permanently discards ${lostVotes} cast vote(s).`);
             }
             const remain = remainingCount();
-            if (remain < 2) bits.push('💢 A round needs at least 2 apps.');
+            if (remain < 2) bits.push('A round needs at least 2 apps.');
             warnEl.innerHTML = bits.join('<br>');
           };
 
@@ -853,7 +855,7 @@
               return `
                 <div class="flex items-center gap-3 neon-card rounded-xl p-2 ${removing ? 'opacity-50 line-through' : ''}">
                   <span class="funky text-white flex-1">${esc(c.app_name)}</span>
-                  ${v > 0 ? `<span class="comic text-xs text-yellow-300">🗳️ ${v} vote(s)</span>` : ''}
+                  ${v > 0 ? `<span class="comic text-xs text-yellow-300">${v} vote(s)</span>` : ''}
                   <button class="ea-rm chunky-btn ${removing ? 'bg-zinc-700 text-white' : 'bg-red-600 text-white'} px-3 py-1 rounded-lg text-sm" data-id="${c.id}">
                     ${removing ? 'Undo' : 'Remove'}
                   </button>
@@ -873,12 +875,12 @@
           refreshWarn();
 
           // Directory picker — reuse appOptRow, then mark already-included apps.
-          pickerEl.innerHTML = `<div class="comic text-cyan-200 animate-pulse">loading apps from the directory… 🛰️</div>`;
+          pickerEl.innerHTML = `<div class="comic text-cyan-200 animate-pulse">loading apps from the directory…</div>`;
           try {
             const data = await api('/api/apps');
             const apps = data.apps || [];
             if (!apps.length) {
-              pickerEl.innerHTML = `<div class="comic text-yellow-300">😶 No apps found in the directory.</div>`;
+              pickerEl.innerHTML = `<div class="comic text-yellow-300">No apps found in the directory.</div>`;
             } else {
               pickerEl.innerHTML = apps.map((a, i) => appOptRow(a, i)).join('');
               pickerEl.querySelectorAll('.app-cb').forEach((cb) => {
@@ -899,7 +901,7 @@
               });
             }
           } catch (e) {
-            pickerEl.innerHTML = `<div class="comic text-pink-300">😬 ${esc(e.message)} — couldn't load the app list.</div>`;
+            pickerEl.innerHTML = `<div class="comic text-pink-300">${esc(e.message)} — couldn't load the app list.</div>`;
           }
 
           $('#ea-cancel', aWrap).onclick = renderAppsIdle;
@@ -907,12 +909,12 @@
           saveBtn.onclick = async () => {
             if (saveBtn.disabled) return;
             if (remainingCount() < 2) {
-              $('#ea-err', aWrap).textContent = '💢 A round needs at least 2 apps.';
+              $('#ea-err', aWrap).textContent = 'A round needs at least 2 apps.';
               shake(saveBtn);
               return;
             }
             saveBtn.disabled = true;
-            saveBtn.textContent = '💾 Saving…';
+            saveBtn.textContent = 'Saving…';
             try {
               const out = await api('/api/rounds/' + encodeURIComponent(slug) + '/apps', {
                 method: 'PUT',
@@ -921,14 +923,14 @@
                   remove_candidate_ids: [...removeSet],
                 }),
               });
-              toast('Apps updated ✨');
+              toast('Apps updated');
               if (out.warning) toast(out.warning, false);
               renderDetail(root, slug);
             } catch (e) {
-              $('#ea-err', aWrap).textContent = '💢 ' + e.message;
+              $('#ea-err', aWrap).textContent = e.message;
               toast(e.message, false);
               saveBtn.disabled = false;
-              saveBtn.textContent = '💾 Save app changes';
+              saveBtn.textContent = 'Save app changes';
             }
           };
         };
@@ -941,7 +943,7 @@
 
         // Step 1: the resting Delete button.
         const renderIdle = () => {
-          wrap.innerHTML = `<button id="del-r" class="chunky-btn bg-red-600 text-white px-4 py-2 rounded-xl">🗑️ Delete round</button>
+          wrap.innerHTML = `<button id="del-r" class="chunky-btn bg-red-600 text-white px-4 py-2 rounded-xl">Delete round</button>
             <span class="comic text-pink-300 text-sm self-center ml-2">admin · permanent</span>`;
           $('#del-r', wrap).onclick = renderConfirm;
         };
@@ -949,9 +951,9 @@
         // Step 2: in-app confirmation with explicit Yes/Cancel.
         const renderConfirm = () => {
           wrap.innerHTML = `
-            <div class="comic text-pink-200 mb-2">⚠️ Delete the round "${esc(r.title)}"? This permanently removes the round, all its candidate apps, and every ballot. This cannot be undone.</div>
+            <div class="comic text-pink-200 mb-2">Delete the round "${esc(r.title)}"? This permanently removes the round, all its candidate apps, and every ballot. This cannot be undone.</div>
             <div class="flex gap-2 flex-wrap">
-              <button id="del-yes" class="chunky-btn bg-red-600 text-white px-4 py-2 rounded-xl">🗑️ Yes, delete</button>
+              <button id="del-yes" class="chunky-btn bg-red-600 text-white px-4 py-2 rounded-xl">Yes, delete</button>
               <button id="del-no" class="chunky-btn bg-zinc-700 text-white px-4 py-2 rounded-xl">Cancel</button>
             </div>`;
           $('#del-no', wrap).onclick = renderIdle;
@@ -959,7 +961,7 @@
           yes.onclick = async () => {
             if (yes.disabled) return;        // guard against double-fire
             yes.disabled = true;
-            yes.textContent = '🗑️ Deleting…';
+            yes.textContent = 'Deleting…';
             try {
               await api('/api/rounds/' + encodeURIComponent(slug), { method: 'DELETE' });
               toast('Round deleted');
@@ -984,10 +986,10 @@
           </div>
           <div id="cards" class="grid grid-cols-1 sm:grid-cols-2 gap-4"></div>
           <button id="submit" class="chunky-btn jiggly w-full mt-5 bg-gradient-to-r from-yellow-300 via-pink-500 to-cyan-400 text-black text-2xl py-4 rounded-2xl">
-            🗳️ SUBMIT BALLOT 🎉
+            SUBMIT BALLOT
           </button>
           <div id="v-err" class="comic text-pink-300 text-center mt-3"></div>
-          <p class="comic text-zinc-400 text-center text-sm mt-2">${r.vote_rule === 'concentrate' ? `you can put up to all ${allowance} on one app` : 'one vote per app — spread them out'} · your ballot is secret 🤐</p>`;
+          <p class="comic text-zinc-400 text-center text-sm mt-2">${r.vote_rule === 'concentrate' ? `you can put up to all ${allowance} on one app` : 'one vote per app — spread them out'} · your ballot is secret</p>`;
 
         const cardsEl = $('#cards', body);
         cardsEl.innerHTML = d.candidates.map((c, i) => {
@@ -998,13 +1000,13 @@
           const dim = (c.is_own || untested) ? 'opacity-70' : '';
           const notice = untested
             ? (c.testedUnknown
-                ? `<div class="comic text-pink-200 text-sm mt-2">⚠️ We couldn't verify whether you've tested this app — try again in a moment.</div>`
-                : `<div class="comic text-yellow-300 text-sm mt-2">🧪 You haven't tested this app yet — try it before you can vote for it.</div>`)
+                ? `<div class="comic text-pink-200 text-sm mt-2">We couldn't verify whether you've tested this app — try again in a moment.</div>`
+                : `<div class="comic text-yellow-300 text-sm mt-2">You haven't tested this app yet — try it before you can vote for it.</div>`)
             : '';
           const controls = c.is_own
-            ? `<div class="comic text-yellow-300 mt-3">🚫 that's YOUR app — no self-voting, you sneaky genius 😏</div>`
+            ? `<div class="comic text-yellow-300 mt-3">that's YOUR app — no self-voting, you sneaky genius</div>`
             : untested
-              ? `<div class="comic text-zinc-400 text-sm mt-3">🔒 voting locked until you test this app</div>`
+              ? `<div class="comic text-zinc-400 text-sm mt-3">voting locked until you test this app</div>`
               : `<div class="flex items-center justify-center gap-4 mt-3">
                    <button class="dec chunky-btn bg-pink-500 text-white w-11 h-11 rounded-full text-2xl leading-none">−</button>
                    <span class="cnt funky text-3xl w-10 text-center text-yellow-300">0</span>
@@ -1012,7 +1014,7 @@
                  </div>`;
           return `
           <div class="cand neon-card rounded-2xl p-4 tilt-${(i%3)+1} ${dim}" data-id="${c.id}">
-            <div class="funky text-lg text-white">${pick(EMOJI)} ${esc(c.app_name)}</div>
+            <div class="funky text-lg text-white">${esc(c.app_name)}</div>
             ${notice}
             ${c.app_url ? `<a href="${esc(c.app_url)}" target="_blank" rel="noopener" class="comic text-cyan-300 text-sm underline break-all">${esc(c.app_url)}</a>` : ''}
             ${c.owner_username ? `<div class="comic text-xs text-zinc-400 mt-0.5">by @${esc(c.owner_username)}</div>` : ''}
@@ -1025,7 +1027,7 @@
         const refresh = () => {
           const used = total();
           const left = allowance - used;
-          tally.innerHTML = `🎯 <span class="text-cyan-300">${used}</span> used · <span class="${left === 0 ? 'text-emerald-300' : 'text-yellow-300'}">${left}</span> left of <span class="text-pink-400">${allowance}</span>`;
+          tally.innerHTML = `<span class="text-cyan-300">${used}</span> used · <span class="${left === 0 ? 'text-emerald-300' : 'text-yellow-300'}">${left}</span> left of <span class="text-pink-400">${allowance}</span>`;
           cardsEl.querySelectorAll('.cand').forEach((card) => {
             const id = +card.dataset.id;
             const cntEl = card.querySelector('.cnt');
@@ -1040,9 +1042,9 @@
           if (!inc) return; // own-app card has no steppers
           inc.onclick = () => {
             const used = total();
-            if (used >= allowance) { toast('No votes left! 🫨', false); shake(card); return; }
+            if (used >= allowance) { toast('No votes left!', false); shake(card); return; }
             if ((alloc[id] || 0) >= cap) {
-              toast(cap <= 1 ? 'One vote per app — spread it out! 🎯' : `Max ${cap} on one app! 🤹`, false);
+              toast(cap <= 1 ? 'One vote per app — spread it out!' : `Max ${cap} on one app!`, false);
               shake(card); return;
             }
             alloc[id] = (alloc[id] || 0) + 1; refresh();
@@ -1059,12 +1061,12 @@
             .filter((pairEntry) => pairEntry[1] > 0)
             .map((pairEntry) => ({ candidate_id: +pairEntry[0], votes: pairEntry[1] }));
           try {
-            await api('/api/rounds/' + slug + '/vote', { method: 'POST', body: JSON.stringify({ allocation }) });
+            await api('/api/rounds/' + slug + '/vote' + demoQs, { method: 'POST', body: JSON.stringify({ allocation }) });
             confetti(160);
-            toast('Ballot submitted! 🥳 results unlocked');
+            toast('Ballot submitted! results unlocked');
             renderDetail(root, slug);
           } catch (e) {
-            $('#v-err', body).textContent = '💢 ' + e.message;
+            $('#v-err', body).textContent = e.message;
             shake($('#submit', body));
             toast(e.message, false);
           }
@@ -1084,7 +1086,7 @@
         if (elig && elig.requireTestedAll && (elig.unenforceableNames || []).length) {
           const note = document.createElement('div');
           note.className = 'neon-card rounded-2xl p-3 mb-4 comic text-center text-zinc-300 text-sm';
-          note.innerHTML = `ℹ️ The testers-only rule can't be enforced for: <span class="text-yellow-300">${elig.unenforceableNames.map(esc).join(', ')}</span> — these apps aren't matched to the platform's tested-apps list, so voting on them isn't gated.`;
+          note.innerHTML = `The testers-only rule can't be enforced for: <span class="text-yellow-300">${elig.unenforceableNames.map(esc).join(', ')}</span> — these apps aren't matched to the platform's tested-apps list, so voting on them isn't gated.`;
           body.insertBefore(note, body.firstChild);
         }
         if (elig && elig.requireTestedAll && (elig.eligible === false || elig.unverifiable)) {
@@ -1096,10 +1098,10 @@
           const banner = document.createElement('div');
           banner.className = 'neon-card rounded-2xl p-4 mb-4 comic text-center text-pink-200';
           if (elig.unverifiable) {
-            banner.innerHTML = `⚠️ We couldn't verify which apps you've tested right now — please try again in a moment.`;
+            banner.innerHTML = `We couldn't verify which apps you've tested right now — please try again in a moment.`;
           } else {
             const missing = (elig.missingNames || []);
-            banner.innerHTML = `🧪 In order to vote on your favorite app, you have to test all the apps part of the voting round.
+            banner.innerHTML = `In order to vote on your favorite app, you have to test all the apps part of the voting round.
               ${missing.length ? `<div class="text-yellow-300 mt-2 text-sm">Still to try: ${missing.map(esc).join(', ')}</div>` : ''}`;
           }
           body.insertBefore(banner, body.firstChild);
@@ -1122,13 +1124,13 @@
           });
           const voted = document.createElement('div');
           voted.className = 'neon-card rounded-2xl p-4 mb-4 comic text-center text-emerald-200';
-          voted.innerHTML = `🗳️ You already voted.
-            <div class="text-zinc-300 mt-2 text-sm">Your ballot's locked in — results are below. 🎉</div>`;
+          voted.innerHTML = `You already voted.
+            <div class="text-zinc-300 mt-2 text-sm">Your ballot's locked in — results are below.</div>`;
           body.insertBefore(voted, body.firstChild);
         }
       } else if (r.status === 'draft') {
         body.innerHTML = `<div class="neon-card rounded-3xl p-8 text-center comic text-xl text-yellow-300">
-          📝 This round is still a draft. Voting hasn't opened yet — check back soon! 🍿
+          This round is still a draft. Voting hasn't opened yet — check back soon!
           <div class="comic text-cyan-200 mt-3">Candidate apps (${d.candidates.length}):</div>
           <div class="mt-2 flex flex-wrap gap-2 justify-center">
             ${d.candidates.map((c) => `<span class="badge bg-purple-500/40 px-3 py-1 rounded-full">${esc(c.app_name)}</span>`).join('')}
@@ -1140,17 +1142,16 @@
       if (d.results) {
         const max = Math.max(1, ...d.results.candidates.map((c) => c.votes));
         const palette = ['from-pink-500 to-yellow-400','from-cyan-400 to-emerald-400','from-purple-500 to-pink-500','from-yellow-300 to-orange-500','from-emerald-400 to-cyan-400'];
-        const medals = ['🥇','🥈','🥉'];
         const panel = document.createElement('div');
         panel.className = 'neon-card rounded-3xl p-6 mt-6';
         panel.innerHTML = `
-          <h3 class="funky text-2xl text-cyan-300 mb-1 tilt-1">📊 RESULTS</h3>
-          <p class="comic text-zinc-300 mb-4">${d.results.voterCount} brave voter(s) have spoken 🗣️</p>
+          <h3 class="funky text-2xl text-cyan-300 mb-1 tilt-1">RESULTS</h3>
+          <p class="comic text-zinc-300 mb-4">${d.results.voterCount} brave voter(s) have spoken</p>
           <div class="space-y-3">
             ${d.results.candidates.map((c, i) => `
               <div>
                 <div class="flex justify-between comic text-sm mb-1">
-                  <span>${medals[i] || '▪️'} ${esc(c.app_name)}</span>
+                  <span>${esc(c.app_name)}</span>
                   <span class="text-yellow-300 funky">${c.votes}</span>
                 </div>
                 <div class="h-6 rounded-full bg-black/50 overflow-hidden border-2 border-black">
@@ -1163,7 +1164,7 @@
       } else if (r.status === 'open' && !d.isCreator) {
         const note = document.createElement('div');
         note.className = 'comic text-center text-zinc-400 mt-6';
-        note.textContent = '🙈 Results are hidden until you cast your ballot — vote first!';
+        note.textContent = 'Results are hidden until you cast your ballot — vote first!';
         body.appendChild(note);
       }
 

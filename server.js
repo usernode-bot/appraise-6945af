@@ -51,12 +51,12 @@ app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 // explicit handler it falls through express.static (no file) to the
 // auth-gated HTML catch-all below, which 401s for the tokenless browser
 // request — surfacing a console error that fails the no-console-errors CI
-// baseline on every route. Answer with 204 No Content (no auth) so the
-// request resolves cleanly with no asset to decode. Placed before the
-// catch-all and never gated.
+// baseline on every route. Serve the app icon (a 204 makes a browser
+// navigation to this URL abort outright). Placed before the catch-all and
+// never gated.
 app.get('/favicon.ico', (_req, res) => {
   res.set('Cache-Control', 'public, max-age=86400');
-  res.status(204).end();
+  res.sendFile(path.join(__dirname, 'public', 'icon.png'));
 });
 
 // ---------------------------------------------------------------------------
@@ -729,6 +729,13 @@ async function buildBuilderRows(candidates) {
     if (!IS_STAGING) throw err;
     apps = STAGING_FALLBACK_APPS;
     source = 'staging-fallback';
+  }
+  // Seeded staging rounds snapshot the fallback apps (ids 99000x), which the
+  // real directory doesn't know. When the live directory IS reachable, add
+  // the fallback set so the staging seed's builders stay visible in previews
+  // instead of silently dropping out of /api/builders and /api/results.
+  if (IS_STAGING && source === 'platform') {
+    apps = apps.concat(STAGING_FALLBACK_APPS);
   }
 
   // Round filter: keep directory apps matching the round's snapshotted
@@ -2083,7 +2090,7 @@ async function seedStaging() {
   await seedRound({
     slug: 'staging-fav-dev-tools',
     title: 'Staging demo — Favorite Dev Tools',
-    description: 'Pick your favorite tools! You have 3 votes — pile them all on one if you like. 🛠️',
+    description: 'Pick your favorite tools! You have 3 votes — pile them all on one if you like.',
     creator_user_id: 900001,
     creator_username: 'staging-demo-host',
     audience: 'everyone',
@@ -2111,8 +2118,8 @@ async function seedStaging() {
   //     take at most 1 of a voter's 3 votes, so they must spread out.
   await seedRound({
     slug: 'staging-one-per-app',
-    title: 'Staging demo — One Vote Per App 🎯',
-    description: 'You have 3 votes, but each app can only get 1 from you — spread them out! 🎯',
+    title: 'Staging demo — One Vote Per App',
+    description: 'You have 3 votes, but each app can only get 1 from you — spread them out!',
     creator_user_id: 900001,
     creator_username: 'staging-demo-host',
     audience: 'everyone',
@@ -2137,7 +2144,7 @@ async function seedStaging() {
   await seedRound({
     slug: 'staging-best-game',
     title: 'Staging demo — Best Game (closed)',
-    description: 'This round is closed — results are public. 🏆',
+    description: 'This round is closed — results are public.',
     creator_user_id: 900001,
     creator_username: 'staging-demo-host',
     audience: 'everyone',
@@ -2165,7 +2172,7 @@ async function seedStaging() {
   await seedRound({
     slug: 'staging-secret-awards',
     title: 'Staging demo — Secret Awards (invite only)',
-    description: 'Hush hush — only invited folks can see this one. 🤫',
+    description: 'Hush hush — only invited folks can see this one.',
     creator_user_id: 900001,
     creator_username: 'staging-demo-host',
     audience: 'invite',
@@ -2186,7 +2193,7 @@ async function seedStaging() {
   await seedRound({
     slug: 'staging-selfvote-off',
     title: 'Staging demo — Self-Vote Showcase (no self-voting)',
-    description: 'Self-voting is OFF here: contributors can\'t vote for their own app. 🚫',
+    description: 'Self-voting is OFF here: contributors can\'t vote for their own app.',
     creator_user_id: 900001,
     creator_username: 'staging-demo-host',
     audience: 'everyone',
@@ -2209,7 +2216,7 @@ async function seedStaging() {
   await seedRound({
     slug: 'staging-selfvote-on',
     title: 'Staging demo — Self-Vote Showcase (self-voting allowed)',
-    description: 'Self-voting is ON here: anyone can vote for any app, even their own. 🙋',
+    description: 'Self-voting is ON here: anyone can vote for any app, even their own.',
     creator_user_id: 900001,
     creator_username: 'staging-demo-host',
     audience: 'everyone',
@@ -2232,8 +2239,8 @@ async function seedStaging() {
   //    Idempotent reseed on boot, so deleting it in staging is safe.
   await seedRound({
     slug: 'staging-deletable-demo',
-    title: 'Staging demo — Safe to Delete 🗑️',
-    description: 'Admins only: hit Delete round to remove this one. It reappears on the next staging boot. 🧹',
+    title: 'Staging demo — Safe to Delete',
+    description: 'Admins only: hit Delete round to remove this one. It reappears on the next staging boot.',
     creator_user_id: 900001,
     creator_username: 'staging-demo-host',
     audience: 'everyone',
@@ -2266,8 +2273,8 @@ async function seedStaging() {
   //    tested Alpha+Bravo → 2/3, voter-3 isn't in the feed → 0/3.
   await seedRound({
     slug: 'staging-voting-progress',
-    title: 'Staging demo — Voting In Progress 🗳️',
-    description: 'Open round with partial ballots — watch unspent votes and tested progress via the public leaderboard API. 📊',
+    title: 'Staging demo — Voting In Progress',
+    description: 'Open round with partial ballots — watch unspent votes and tested progress via the public leaderboard API.',
     creator_user_id: 900001,
     creator_username: 'staging-demo-host',
     audience: 'everyone',
@@ -2299,8 +2306,8 @@ async function seedStaging() {
   //    existing fake directory slugs so eligibility matching is meaningful.
   await seedRound({
     slug: 'staging-tested-gate',
-    title: 'Staging demo — Testers Only Gate 🧪',
-    description: 'Restricted: you must have tested every app to vote. Blocked by default; add ?demo=1 to the URL to qualify. 🔬',
+    title: 'Staging demo — Testers Only Gate',
+    description: 'Restricted: you must have tested every app to vote. Blocked by default; add ?demo=1 to the URL to qualify.',
     creator_user_id: 900001,
     creator_username: 'staging-demo-host',
     audience: 'everyone',
@@ -2330,8 +2337,8 @@ async function seedStaging() {
   //    eligible, submit-enabled ballot (steppers appear on every card).
   await seedRound({
     slug: 'staging-name-fallback',
-    title: 'Staging demo — Name Fallback Gate 🔤',
-    description: 'Testers-only round whose apps match the tested-apps list by NAME, not slug. Blocked by default; add ?demo=1 to qualify. 🧷',
+    title: 'Staging demo — Name Fallback Gate',
+    description: 'Testers-only round whose apps match the tested-apps list by NAME, not slug. Blocked by default; add ?demo=1 to qualify.',
     creator_user_id: 900001,
     creator_username: 'staging-demo-host',
     audience: 'everyone',
@@ -2355,8 +2362,8 @@ async function seedStaging() {
   //     renders for every viewer; the slugged candidate is still gated.
   await seedRound({
     slug: 'staging-unenforceable-gate',
-    title: 'Staging demo — Unenforceable Gate ⚠️',
-    description: 'Testers-only, but one app has no directory slug so the rule can\'t be enforced for it. 🫥',
+    title: 'Staging demo — Unenforceable Gate',
+    description: 'Testers-only, but one app has no directory slug so the rule can\'t be enforced for it.',
     creator_user_id: 900001,
     creator_username: 'staging-demo-host',
     audience: 'everyone',
@@ -2382,8 +2389,8 @@ async function seedStaging() {
   //     cascade. Staging users are all admins, so any tester can open the panel.
   await seedRound({
     slug: 'staging-edit-apps',
-    title: 'Staging demo — Edit apps 🧩',
-    description: 'Admin can add/remove the competing apps here. Delta is available to add; Alpha already has votes so removing it warns about discarding them. 🧩',
+    title: 'Staging demo — Edit apps',
+    description: 'Admin can add/remove the competing apps here. Delta is available to add; Alpha already has votes so removing it warns about discarding them.',
     creator_user_id: 900001,
     creator_username: 'staging-demo-host',
     audience: 'everyone',
