@@ -64,7 +64,7 @@
     try { post('info', ['[dev-console ready]'], { kind: 'ready' }); } catch (_) {}
   })();
   </script>
-  <title>Appraise 🏆 public results</title>
+  <title>Appraise public results</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>tailwind.config = { darkMode: 'class' }</script>
   <style>
@@ -107,18 +107,18 @@
 <body class="text-zinc-100 min-h-screen p-4 sm:p-6">
 
   <header class="max-w-3xl mx-auto mb-6 text-center select-none">
-    <h1 class="funky text-4xl sm:text-5xl rainbow drop-shadow-[0_3px_0_rgba(0,0,0,.6)]">🎉 APPRAISE 🗳️</h1>
-    <p class="comic text-lg text-yellow-300 mt-1 -rotate-1">public voting results — shared for all to see 🌍</p>
+    <h1 class="funky text-4xl sm:text-5xl rainbow drop-shadow-[0_3px_0_rgba(0,0,0,.6)]">APPRAISE</h1>
+    <p class="comic text-lg text-yellow-300 mt-1 -rotate-1">public voting results — shared for all to see</p>
   </header>
 
   <main id="app" class="max-w-3xl mx-auto">
-    <div class="text-center comic text-2xl animate-pulse">fetching the results… 🔮</div>
+    <div class="text-center comic text-2xl animate-pulse">fetching the results…</div>
   </main>
 
   <footer class="max-w-3xl mx-auto mt-10 text-center comic text-zinc-500 text-sm">
     powered by Appraise on
     <a href="https://social-vibecoding.usernodelabs.org" class="underline text-cyan-400">Usernode Social Vibecoding</a>
-    · individual ballots stay secret 🤐
+    · individual ballots stay secret
   </footer>
 
   <script>
@@ -139,9 +139,9 @@
 
     function statusBadge(status) {
       const map = {
-        open:   ['🟢 OPEN', 'bg-emerald-400 text-emerald-950'],
-        draft:  ['📝 DRAFT', 'bg-yellow-300 text-yellow-900'],
-        closed: ['🔒 CLOSED', 'bg-fuchsia-400 text-fuchsia-950'],
+        open:   ['OPEN', 'bg-emerald-400 text-emerald-950'],
+        draft:  ['DRAFT', 'bg-yellow-300 text-yellow-900'],
+        closed: ['CLOSED', 'bg-fuchsia-400 text-fuchsia-950'],
       };
       const pair = map[status] || ['?', 'bg-zinc-400 text-black'];
       return `<span class="badge ${pair[1]} px-2.5 py-1 rounded-full text-xs">${pair[0]}</span>`;
@@ -150,7 +150,7 @@
     function notFound(root) {
       root.innerHTML = `
         <div class="neon-card rounded-3xl p-8 text-center">
-          <div class="funky text-2xl text-pink-300 mb-2">😶 Round not found</div>
+          <div class="funky text-2xl text-pink-300 mb-2">Round not found</div>
           <div class="comic text-zinc-300">This round doesn't exist or isn't public.</div>
         </div>`;
     }
@@ -158,7 +158,7 @@
     function errorBox(root, msg) {
       root.innerHTML = `
         <div class="neon-card rounded-3xl p-8 text-center">
-          <div class="funky text-2xl text-pink-300 mb-2">😬 Couldn't load the results</div>
+          <div class="funky text-2xl text-pink-300 mb-2">Couldn't load the results</div>
           <div class="comic text-zinc-300">${esc(msg)} — try refreshing in a moment.</div>
         </div>`;
     }
@@ -169,21 +169,19 @@
       const cands = Array.isArray(res.candidates) ? res.candidates : [];
       const max = Math.max(1, ...cands.map((c) => c.votes || 0));
       const palette = ['from-pink-500 to-yellow-400','from-cyan-400 to-emerald-400','from-purple-500 to-pink-500','from-yellow-300 to-orange-500','from-emerald-400 to-cyan-400'];
-      const medals = ['🥇','🥈','🥉'];
-
       // A closed round's numbers are final; anything else is a live tally.
       const liveness = r.status === 'closed'
-        ? `<div class="comic text-fuchsia-300 mt-1">🏁 Final results — voting is closed.</div>`
+        ? `<div class="comic text-fuchsia-300 mt-1">Final results — voting is closed.</div>`
         : r.status === 'open'
-          ? `<div class="comic text-emerald-300 mt-1">🔴 Live tally — voting is still open, numbers can change!</div>`
-          : `<div class="comic text-yellow-300 mt-1">📝 Voting hasn't opened yet — nothing to count so far.</div>`;
+          ? `<div class="comic text-emerald-300 mt-1">Live tally — voting is still open, numbers can change!</div>`
+          : `<div class="comic text-yellow-300 mt-1">Voting hasn't opened yet — nothing to count so far.</div>`;
 
       root.innerHTML = `
         <div class="neon-card rounded-3xl p-6 mb-5 tilt-2">
           <div class="flex items-start justify-between gap-3 flex-wrap">
             <div>
-              <h2 class="funky text-2xl text-white">🏆 ${esc(r.title)}</h2>
-              <div class="comic text-cyan-200 mt-1">🗳️ ${r.votes_per_voter} vote(s) per voter · by @${esc(r.creator_username)}</div>
+              <h2 class="funky text-2xl text-white">${esc(r.title)}</h2>
+              <div class="comic text-cyan-200 mt-1">${r.votes_per_voter} vote(s) per voter · by @${esc(r.creator_username)}</div>
               ${liveness}
             </div>
             ${statusBadge(r.status)}
@@ -192,15 +190,15 @@
         </div>
 
         <div class="neon-card rounded-3xl p-6 tilt-1">
-          <h3 class="funky text-2xl text-cyan-300 mb-1">📊 RESULTS</h3>
-          <p class="comic text-zinc-300 mb-4">${res.voter_count || 0} voter(s) · ${res.total_votes || 0} vote(s) cast 🗣️</p>
+          <h3 class="funky text-2xl text-cyan-300 mb-1">RESULTS</h3>
+          <p class="comic text-zinc-300 mb-4">${res.voter_count || 0} voter(s) · ${res.total_votes || 0} vote(s) cast</p>
           <div class="space-y-3">
             ${cands.map((c, i) => {
               const link = safeHref(c.app_url);
               return `
               <div>
                 <div class="flex justify-between comic text-sm mb-1">
-                  <span>${medals[i] || '▪️'} ${esc(c.app_name)}
+                  <span>${esc(c.app_name)}
                     ${link ? `<a href="${esc(link)}" target="_blank" rel="noopener noreferrer" class="text-cyan-300 underline text-xs ml-1">open ↗</a>` : ''}
                   </span>
                   <span class="text-yellow-300 funky">${c.votes || 0}</span>
